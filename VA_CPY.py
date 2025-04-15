@@ -9,6 +9,7 @@ from argon2.exceptions import VerifyMismatchError
 # Global Variables
 current_user = None
 window = None
+current_state = "main"
 
 # Initialize Argon2 Password Hasher
 ph = PasswordHasher()
@@ -48,6 +49,9 @@ def login(email, password):
         try:
             ph.verify(stored_password, password)
             messagebox.showinfo("Success", "Login successful!")
+            global current_user
+            current_user = user
+            logged_in()
         except VerifyMismatchError:
             messagebox.showerror("Error", "Incorrect email or password.")
     else:
@@ -63,8 +67,18 @@ def sign_in():
     tk.Label(window, text="Password:").pack()
     password_entry = tk.Entry(window, show="*")
     password_entry.pack()
-
+    
     tk.Button(window, text="Login", command=lambda: login(email_entry.get(), password_entry.get())).pack()
+    tk.Button(window, text="SIGN Up", command=lambda: sign_up_assist()).pack()
+    tk.Button(window, text="Main Menu", command=lambda: main_assist()).pack()
+
+def main_assist():
+    clear_window()
+    setup_main_screen()
+
+def sign_up_assist():
+    clear_window()
+    sign_up()
 
 def is_valid_email(email):
     email_regex = r'^[\w\.-]+@[\w\.-]+\.\w+$'
@@ -120,14 +134,17 @@ def sign_up():
     confirm_entry.pack()
 
     tk.Button(window, text="Create Account", command=create_account_if_valid).pack()
+    tk.Button(window, text="Main Menu", command=lambda: main_assist()).pack()
 
 def clear_window():
     for widget in window.winfo_children():
         widget.destroy()
 
 def setup_main_screen():
+    clear_window()
     global window
-    window = tk.Tk()
+    global current_state
+    current_state = "main"
     window.title("Voice Assistant")
 
     tk.Button(window, text="Continue without account", command=continue_without_account).pack()
@@ -135,7 +152,6 @@ def setup_main_screen():
     tk.Button(window, text="Sign Up", command=sign_up).pack()
     tk.Button(window, text="About Me", command=about_me).pack()
 
-    window.mainloop()
 
 def continue_without_account():
     clear_window()
@@ -145,10 +161,56 @@ def continue_without_account():
     tk.Button(window, text="Sign Up", command=sign_up).pack(side=tk.RIGHT)
     tk.Button(window, text="Sign In", command=sign_in).pack(side=tk.RIGHT)
 
+def aboutme_assist():
+    clear_window()
+    about_me()
+
+def back_to_previous():
+    if current_state == "logged_in":
+        logged_in()  # Return to logged-in page
+    else:
+        main_screen()  # Return to main menu
+
 def about_me():
     clear_window()
     tk.Label(window, text="About this Voice Assistant Project").pack()
-    tk.Button(window, text="Back", command=setup_main_screen).pack()
+    tk.Button(window, text="Back", command=back_to_previous).pack()
+    
+def logged_in():
+    global current_state
+    current_state = "logged_in"
+    clear_window()
+    conversation_area = tk.Text(window)
+    conversation_area.pack()
+
+    tk.Button(window, text="LOG OUT", command=log_out).pack()
+    tk.Button(window, text="History", command=history).pack()
+    tk.Button(window, text="Settings", command=settings).pack()
+    tk.Button(window, text="About Me", command=aboutme_assist).pack()
+
+    
+
+def log_out():
+    global current_user
+    current_user = None
+    clear_window()
+    main_screen()
+
+
+def main_screen():
+    clear_window()
+    tk.Button(window, text="Continue without account", command=continue_without_account).pack()
+    tk.Button(window, text="Sign In", command=sign_in).pack()
+    tk.Button(window, text="Sign Up", command=sign_up).pack()
+    tk.Button(window, text="About Me", command=about_me).pack()
+
+def history():
+    pass
+
+def settings():
+    pass
 
 if __name__ == "__main__":
-    setup_main_screen()
+    window = tk.Tk()
+    setup_main_screen()  # Call this once to set up the main screen
+    window.mainloop()  # Start the Tkinter event loop
