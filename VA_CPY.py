@@ -18,71 +18,36 @@ ph = PasswordHasher()
 conn = sqlite3.connect('user.db')
 cursor = conn.cursor()
 
-def get_user_from_database(email):
-    cursor.execute("SELECT * FROM signup WHERE email = ?", (email,))
-    return cursor.fetchone()
-
-def create_account(name, last_name, email, password):
-    cursor.execute("SELECT * FROM signup WHERE email = ?", (email,))
-    existing_email = cursor.fetchone()
-
-    if existing_email:
-        messagebox.showerror("Error", f"User  with email '{email}' already exists.")
-        return
-
-    # Hash the password using Argon2
-    hashed_password = ph.hash(password)
-
-    # Store only the hashed password
-    cursor.execute("INSERT INTO signup (name, last_name, email, password) VALUES (?, ?, ?, ?)", 
-                   (name, last_name, email, hashed_password))
-    conn.commit()
-    messagebox.showinfo("Success", "User  account created successfully.")
-
-def login(email, password):
-    user = get_user_from_database(email)
-
-    if user:
-        stored_password = user[4]  # Get the stored hashed password
-
-        # Verify the password
-        try:
-            ph.verify(stored_password, password)
-            messagebox.showinfo("Success", "Login successful!")
-            global current_user
-            current_user = user
-            logged_in()
-        except VerifyMismatchError:
-            messagebox.showerror("Error", "Incorrect email or password.")
-    else:
-        messagebox.showerror("Error", "User  not found.")
-
-def sign_in():
+def setup_main_screen():
     clear_window()
+    global window
+    global current_state
+    current_state = "main"
+    window.title("Voice Assistant")
 
-    tk.Label(window, text="Email:").pack()
-    email_entry = tk.Entry(window)
-    email_entry.pack()
+    tk.Button(window, text="Continue without account", command=continue_without_account).pack()
+    tk.Button(window, text="Sign In", command=sign_in).pack()
+    tk.Button(window, text="Sign Up", command=sign_up).pack()
+    tk.Button(window, text="About Me", command=about_me).pack()
 
-    tk.Label(window, text="Password:").pack()
-    password_entry = tk.Entry(window, show="*")
-    password_entry.pack()
-    
-    tk.Button(window, text="Login", command=lambda: login(email_entry.get(), password_entry.get())).pack()
-    tk.Button(window, text="SIGN Up", command=lambda: sign_up_assist()).pack()
-    tk.Button(window, text="Main Menu", command=lambda: main_assist()).pack()
+def main_screen():
+    clear_window()
+    tk.Button(window, text="Continue without account", command=continue_without_account).pack()
+    tk.Button(window, text="Sign In", command=sign_in).pack()
+    tk.Button(window, text="Sign Up", command=sign_up).pack()
+    tk.Button(window, text="About Me", command=about_me).pack()
 
 def main_assist():
     clear_window()
     setup_main_screen()
 
-def sign_up_assist():
+def continue_without_account():
     clear_window()
-    sign_up()
+    conversation_area = tk.Text(window)
+    conversation_area.pack()
 
-def is_valid_email(email):
-    email_regex = r'^[\w\.-]+@[\w\.-]+\.\w+$'
-    return re.match(email_regex, email)
+    tk.Button(window, text="Sign Up", command=sign_up).pack(side=tk.RIGHT)
+    tk.Button(window, text="Sign In", command=sign_in).pack(side=tk.RIGHT)
 
 def sign_up():
     def create_account_if_valid():
@@ -136,46 +101,68 @@ def sign_up():
     tk.Button(window, text="Create Account", command=create_account_if_valid).pack()
     tk.Button(window, text="Main Menu", command=lambda: main_assist()).pack()
 
-def clear_window():
-    for widget in window.winfo_children():
-        widget.destroy()
-
-def setup_main_screen():
+def sign_up_assist():
     clear_window()
-    global window
-    global current_state
-    current_state = "main"
-    window.title("Voice Assistant")
+    sign_up()
 
-    tk.Button(window, text="Continue without account", command=continue_without_account).pack()
-    tk.Button(window, text="Sign In", command=sign_in).pack()
-    tk.Button(window, text="Sign Up", command=sign_up).pack()
-    tk.Button(window, text="About Me", command=about_me).pack()
+def is_valid_email(email):
+    email_regex = r'^[\w\.-]+@[\w\.-]+\.\w+$'
+    return re.match(email_regex, email)
 
+def create_account(name, last_name, email, password):
+    cursor.execute("SELECT * FROM signup WHERE email = ?", (email,))
+    existing_email = cursor.fetchone()
 
-def continue_without_account():
+    if existing_email:
+        messagebox.showerror("Error", f"User  with email '{email}' already exists.")
+        return
+
+    # Hash the password using Argon2
+    hashed_password = ph.hash(password)
+
+    # Store only the hashed password
+    cursor.execute("INSERT INTO signup (name, last_name, email, password) VALUES (?, ?, ?, ?)", 
+                   (name, last_name, email, hashed_password))
+    conn.commit()
+    messagebox.showinfo("Success", "User  account created successfully.")
+
+def get_user_from_database(email):
+    cursor.execute("SELECT * FROM signup WHERE email = ?", (email,))
+    return cursor.fetchone()
+
+def sign_in():
     clear_window()
-    conversation_area = tk.Text(window)
-    conversation_area.pack()
 
-    tk.Button(window, text="Sign Up", command=sign_up).pack(side=tk.RIGHT)
-    tk.Button(window, text="Sign In", command=sign_in).pack(side=tk.RIGHT)
+    tk.Label(window, text="Email:").pack()
+    email_entry = tk.Entry(window)
+    email_entry.pack()
 
-def aboutme_assist():
-    clear_window()
-    about_me()
-
-def back_to_previous():
-    if current_state == "logged_in":
-        logged_in()  # Return to logged-in page
-    else:
-        main_screen()  # Return to main menu
-
-def about_me():
-    clear_window()
-    tk.Label(window, text="About this Voice Assistant Project").pack()
-    tk.Button(window, text="Back", command=back_to_previous).pack()
+    tk.Label(window, text="Password:").pack()
+    password_entry = tk.Entry(window, show="*")
+    password_entry.pack()
     
+    tk.Button(window, text="Login", command=lambda: login(email_entry.get(), password_entry.get())).pack()
+    tk.Button(window, text="SIGN Up", command=lambda: sign_up_assist()).pack()
+    tk.Button(window, text="Main Menu", command=lambda: main_assist()).pack()
+
+def login(email, password):
+    user = get_user_from_database(email)
+
+    if user:
+        stored_password = user[4]  # Get the stored hashed password
+
+        # Verify the password
+        try:
+            ph.verify(stored_password, password)
+            messagebox.showinfo("Success", "Login successful!")
+            global current_user
+            current_user = user
+            logged_in()
+        except VerifyMismatchError:
+            messagebox.showerror("Error", "Incorrect email or password.")
+    else:
+        messagebox.showerror("Error", "User  not found.")
+
 def logged_in():
     global current_state
     current_state = "logged_in"
@@ -188,27 +175,36 @@ def logged_in():
     tk.Button(window, text="Settings", command=settings).pack()
     tk.Button(window, text="About Me", command=aboutme_assist).pack()
 
-    
-
-def log_out():
-    global current_user
-    current_user = None
+def about_me():
     clear_window()
-    main_screen()
+    tk.Label(window, text="About this Voice Assistant Project").pack()
+    tk.Button(window, text="Back", command=back_to_previous).pack()
 
-
-def main_screen():
+def aboutme_assist():
     clear_window()
-    tk.Button(window, text="Continue without account", command=continue_without_account).pack()
-    tk.Button(window, text="Sign In", command=sign_in).pack()
-    tk.Button(window, text="Sign Up", command=sign_up).pack()
-    tk.Button(window, text="About Me", command=about_me).pack()
+    about_me()
+
+def back_to_previous():
+    if current_state == "logged_in":
+        logged_in()  # Return to logged-in page
+    else:
+        main_screen()  # Return to main menu
 
 def history():
     pass
 
 def settings():
     pass
+
+def clear_window():
+    for widget in window.winfo_children():
+        widget.destroy()
+
+def log_out():
+    global current_user
+    current_user = None
+    clear_window()
+    main_screen()
 
 if __name__ == "__main__":
     window = tk.Tk()
