@@ -48,6 +48,7 @@ def continue_without_account():
 
     tk.Button(window, text="Sign Up", command=sign_up).pack(side=tk.RIGHT)
     tk.Button(window, text="Sign In", command=sign_in).pack(side=tk.RIGHT)
+    tk.Button(window, text="Main Menu", command=main_assist).pack()
 
 def sign_up():
     def create_account_if_valid():
