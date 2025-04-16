@@ -1,18 +1,25 @@
 # add login function view
 import tkinter as tk
 from tkinter import messagebox
+from tkinter.ttk import Combobox
 import sqlite3
 import re
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
+import pyttsx3
 
 # Global Variables
 current_user = None
 window = None
 current_state = "main"
+current_user_email = None
 
 # Initialize Argon2 Password Hasher
 ph = PasswordHasher()
+
+engine = pyttsx3.init()
+voices = engine.getProperty('voices')
+current_rate = engine.getProperty('rate')
 
 # Connect to the SQLite database
 conn = sqlite3.connect('user.db')
@@ -79,6 +86,7 @@ def sign_up():
         tk.Button(window, text="Sign Up", command=sign_up).pack()
         tk.Button(window, text="About Me", command=about_me).pack()
 
+    clear_window()
     tk.Label(window, text="Name:").pack()
     name_entry = tk.Entry(window)
     name_entry.pack()
@@ -158,6 +166,8 @@ def login(email, password):
             messagebox.showinfo("Success", "Login successful!")
             global current_user
             current_user = user
+            global current_user_email
+            current_user_email = email
             logged_in()
         except VerifyMismatchError:
             messagebox.showerror("Error", "Incorrect email or password.")
@@ -194,8 +204,94 @@ def back_to_previous():
 def history():
     pass
 
+
+def update_user_info(new_name):
+    # Update the user's name in the database
+    cursor.execute("UPDATE signup SET name = ? WHERE email = ?", (new_name, current_user_email))
+    conn.commit()
+
+def get_current_user_info():
+    cursor.execute("SELECT name, password FROM signup WHERE email = ?", (current_user_email,))
+    return cursor.fetchone()  # Returns (name, password)
+
 def settings():
-    pass
+    clear_window()
+    
+    user_info = get_current_user_info()
+    
+    if user_info:
+        current_name, stored_hashed_password = user_info  # Unpack the name and hashed password
+
+        # Display current name
+        tk.Label(window, text="Current Name:").pack()
+        name_label = tk.Label(window, text=current_name)
+        name_label.pack()
+
+        tk.Label(window, text="EMAIL").pack()
+        name_label = tk.Label(window, text=current_user_email)
+        name_label.pack()
+        
+ # Initialize the TTS engine
+        
+        gender_combobox=Combobox(window,values=["Male","Female"],font="arial 14", state="r",width=10)
+        gender_combobox.place(x=550,y=200)
+        gender_combobox.set("Male")
+
+        speed_combobox=Combobox(window,values=["Fast","Normal","Slow"],font="arial 14", state="r",width=10)
+        speed_combobox.place(x=730,y=200)
+        speed_combobox.set("Normal")
+
+
+        def ask_for_password():
+            # Create a new window to ask for the password
+            password_window = tk.Toplevel(window)
+            password_window.title("Verify Password")
+
+            tk.Label(password_window, text="Enter your password:").pack()
+            password_entry = tk.Entry(password_window, show='*')
+            password_entry.pack()
+
+            def verify_password():
+                entered_password = password_entry.get()
+                try:
+                    # Verify the entered password against the stored hashed password
+                    if ph.verify(stored_hashed_password, entered_password):
+                        password_window.destroy()  # Close the password window
+                        change_name_window()  # Open the change name window
+                    else:
+                        messagebox.showerror("Error", "Incorrect password. Please try again.")
+                except VerifyMismatchError:
+                    messagebox.showerror("Error", "Incorrect password. Please try again.")
+
+            tk.Button(password_window, text="Verify", command=verify_password).pack()
+
+        def change_name_window():
+            # Create a new window to change the name
+            change_window = tk.Toplevel(window)
+            change_window.title("Change Name")
+
+            tk.Label(change_window, text="Enter new name:").pack()
+            new_name_entry = tk.Entry(change_window)
+            new_name_entry.pack()
+
+            accept_var = tk.BooleanVar()
+            tk.Checkbutton(change_window, text="I accept to change my name", variable=accept_var).pack()
+
+            def save_new_name():
+                new_name = new_name_entry.get()
+                if accept_var.get() and new_name:
+                    update_user_info(new_name)  # Update the database
+                    name_label.config(text=new_name)  # Update the displayed name
+                    messagebox.showinfo("Success", "Your name has been updated.")
+                    change_window.destroy()  # Close the change name window
+                else:
+                    messagebox.showerror("Error", "Please accept the change and enter a new name.")
+
+            tk.Button(change_window, text="Change Name", command=save_new_name).pack()
+
+        tk.Button(window, text="Change Name", command=ask_for_password).pack()  # Button to change name
+    else:
+        tk.Label(window, text="User  not found.").pack()
 
 def clear_window():
     for widget in window.winfo_children():
