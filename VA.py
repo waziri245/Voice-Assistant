@@ -7,6 +7,10 @@ import re
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 import pyttsx3
+import speech_recognition as sr
+import threading
+import subprocess
+from datetime import datetime
 
 # Global Variables
 current_user = None
@@ -25,10 +29,99 @@ current_rate = engine.getProperty('rate')
 conn = sqlite3.connect('user.db')
 cursor = conn.cursor()
 
+
+def speak(text):
+    engine.say(text)
+    engine.runAndWait()
+
+def listen_and_respond(conversation_area):
+    recognizer = sr.Recognizer()
+    microphone = sr.Microphone()
+    
+    def listen():
+        conversation_area.insert(tk.END, "\nListening...\n")
+        conversation_area.see(tk.END)
+        window.update()
+        
+        with microphone as source:
+            recognizer.adjust_for_ambient_noise(source)
+            try:
+                audio = recognizer.listen(source, timeout=5, phrase_time_limit=10)
+                return recognizer.recognize_google(audio)
+            except sr.WaitTimeoutError:
+                return None
+            except sr.UnknownValueError:
+                return None
+            except Exception as e:
+                print(f"Error: {e}")
+                return None
+    
+    def process_command(command):
+        if not command:
+            return "I didn't catch that. Could you please repeat?"
+        
+        conversation_area.insert(tk.END, f"USER: {command}\n")
+        conversation_area.see(tk.END)
+        window.update()
+        
+        response = ""
+        command_lower = command.lower()
+        
+        if any(greeting in command_lower for greeting in ["hello", "hi", "hey"]):
+            response = "Hello! How can I help you today?"
+        elif "time" in command_lower:
+            response = f"The current time is {datetime.now().strftime('%H:%M')}"
+        elif "date" in command_lower:
+            response = f"Today's date is {datetime.now().strftime('%B %d, %Y')}"
+        elif "open" in command_lower:
+            app = command_lower.replace("open", "").strip()
+            response = f"Opening {app}"
+            try:
+                if "chrome" in app or "browser" in app:
+                    subprocess.Popen(["google-chrome"])
+                elif "terminal" in app:
+                    subprocess.Popen(["gnome-terminal"])
+                elif "file" in app or "explorer" in app:
+                    subprocess.Popen(["nautilus"])
+                else:
+                    response = f"I'm not sure how to open {app}"
+            except Exception as e:
+                response = f"Sorry, I couldn't open {app}. Error: {str(e)}"
+        elif "search" in command_lower:
+            query = command_lower.replace("search", "").strip()
+            if query:
+                response = f"Searching the web for {query}"
+                try:
+                    subprocess.Popen(["google-chrome", f"https://www.google.com/search?q={query}"])
+                except:
+                    response = "I couldn't perform the search. Please try again."
+        elif "exit" in command_lower or "quit" in command_lower or "stop" in command_lower:
+            response = "Goodbye! Have a nice day."
+            conversation_area.insert(tk.END, f"BOT: {response}\n")
+            conversation_area.see(tk.END)
+            speak(response)
+            return False
+        else:
+            response = "I'm not sure how to help with that. Could you try asking something else?"
+        
+        conversation_area.insert(tk.END, f"BOT: {response}\n\n")
+        conversation_area.see(tk.END)
+        speak(response)
+        return True
+    
+    def assistant_loop():
+        while True:
+            command = listen()
+            if not process_command(command):
+                break
+    
+    assistant_thread = threading.Thread(target=assistant_loop)
+    assistant_thread.daemon = True
+    assistant_thread.start()
+
 def setup_main_screen():
     clear_window()
-    global window
-    global current_state
+    global window, current_state
     current_state = "main"
     window.title("Voice Assistant")
 
@@ -37,25 +130,32 @@ def setup_main_screen():
     tk.Button(window, text="Sign Up", command=sign_up).pack()
     tk.Button(window, text="About Me", command=about_me).pack()
 
-def main_screen():
-    clear_window()
-    tk.Button(window, text="Continue without account", command=continue_without_account).pack()
-    tk.Button(window, text="Sign In", command=sign_in).pack()
-    tk.Button(window, text="Sign Up", command=sign_up).pack()
-    tk.Button(window, text="About Me", command=about_me).pack()
-
-def main_assist():
-    clear_window()
-    setup_main_screen()
+def clear_window():
+    for widget in window.winfo_children():
+        widget.destroy()
 
 def continue_without_account():
     clear_window()
-    conversation_area = tk.Text(window)
-    conversation_area.pack()
+    conversation_area = tk.Text(window, wrap=tk.WORD)
+    conversation_area.pack(fill=tk.BOTH, expand=True)
+    
+    scrollbar = tk.Scrollbar(conversation_area)
+    scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+    conversation_area.config(yscrollcommand=scrollbar.set)
+    scrollbar.config(command=conversation_area.yview)
+    
+    welcome_msg = "Voice Assistant initialized. Say 'hello' to start or 'exit' to quit.\n\n"
+    conversation_area.insert(tk.END, welcome_msg)
+    speak("Voice Assistant initialized. Say hello to start or exit to quit.")
+    
+    listen_and_respond(conversation_area)
+    
+    button_frame = tk.Frame(window)
+    button_frame.pack(fill=tk.X)
 
     tk.Button(window, text="Sign Up", command=sign_up).pack(side=tk.RIGHT)
     tk.Button(window, text="Sign In", command=sign_in).pack(side=tk.RIGHT)
-    tk.Button(window, text="Main Menu", command=main_assist).pack()
+    tk.Button(window, text="Main Menu", command=setup_main_screen).pack()
 
 def sign_up():
     def create_account_if_valid():
@@ -68,23 +168,24 @@ def sign_up():
         if not all([name, last_name, email, password, confirm_password]):
             messagebox.showerror("Error", "Please fill in all fields")
             return
-
-        if not is_valid_email(email):
+        if not re.match(r'^[\w\.-]+@[\w\.-]+\.\w+$', email):
             messagebox.showerror("Error", "Please enter a valid email address")
             return
-
         if password != confirm_password:
             messagebox.showerror("Error", "Passwords do not match")
             return
 
-        create_account(name, last_name, email, password)
+        cursor.execute("SELECT * FROM signup WHERE email = ?", (email,))
+        if cursor.fetchone():
+            messagebox.showerror("Error", f"User with email '{email}' already exists.")
+            return
 
-        clear_window()
-
-        tk.Button(window, text="Continue without account", command=continue_without_account).pack()
-        tk.Button(window, text="Sign In", command=sign_in).pack()
-        tk.Button(window, text="Sign Up", command=sign_up).pack()
-        tk.Button(window, text="About Me", command=about_me).pack()
+        hashed_password = ph.hash(password)
+        cursor.execute("INSERT INTO signup (name, last_name, email, password) VALUES (?, ?, ?, ?)", 
+                      (name, last_name, email, hashed_password))
+        conn.commit()
+        messagebox.showinfo("Success", "User account created successfully.")
+        setup_main_screen()
 
     clear_window()
     tk.Label(window, text="Name:").pack()
@@ -108,32 +209,7 @@ def sign_up():
     confirm_entry.pack()
 
     tk.Button(window, text="Create Account", command=create_account_if_valid).pack()
-    tk.Button(window, text="Main Menu", command=lambda: main_assist()).pack()
-
-def sign_up_assist():
-    clear_window()
-    sign_up()
-
-def is_valid_email(email):
-    email_regex = r'^[\w\.-]+@[\w\.-]+\.\w+$'
-    return re.match(email_regex, email)
-
-def create_account(name, last_name, email, password):
-    cursor.execute("SELECT * FROM signup WHERE email = ?", (email,))
-    existing_email = cursor.fetchone()
-
-    if existing_email:
-        messagebox.showerror("Error", f"User  with email '{email}' already exists.")
-        return
-
-    # Hash the password using Argon2
-    hashed_password = ph.hash(password)
-
-    # Store only the hashed password
-    cursor.execute("INSERT INTO signup (name, last_name, email, password) VALUES (?, ?, ?, ?)", 
-                   (name, last_name, email, hashed_password))
-    conn.commit()
-    messagebox.showinfo("Success", "User  account created successfully.")
+    tk.Button(window, text="Main Menu", command=setup_main_screen).pack()
 
 def get_user_from_database(email):
     cursor.execute("SELECT * FROM signup WHERE email = ?", (email,))
@@ -151,159 +227,190 @@ def sign_in():
     password_entry.pack()
     
     tk.Button(window, text="Login", command=lambda: login(email_entry.get(), password_entry.get())).pack()
-    tk.Button(window, text="SIGN Up", command=lambda: sign_up_assist()).pack()
-    tk.Button(window, text="Main Menu", command=lambda: main_assist()).pack()
+    tk.Button(window, text="Sign Up", command=sign_up).pack()
+    tk.Button(window, text="Main Menu", command=setup_main_screen).pack()
 
 def login(email, password):
+    if not email or not password:
+        messagebox.showerror("Error", "Please enter both email and password")
+        return
+        
     user = get_user_from_database(email)
-
-    if user:
-        stored_password = user[4]  # Get the stored hashed password
-
-        # Verify the password
-        try:
-            ph.verify(stored_password, password)
-            messagebox.showinfo("Success", "Login successful!")
-            global current_user
-            current_user = user
-            global current_user_email
-            current_user_email = email
-            logged_in()
-        except VerifyMismatchError:
-            messagebox.showerror("Error", "Incorrect email or password.")
-    else:
-        messagebox.showerror("Error", "User  not found.")
+    if not user:
+        messagebox.showerror("Error", "User not found")
+        return
+        
+    try:
+        ph.verify(user[4], password)
+        global current_user, current_user_email
+        current_user = user
+        current_user_email = email
+        
+        cursor.execute("SELECT voice_speed FROM signup WHERE email=?", (email,))
+        speed_setting = cursor.fetchone()
+        if speed_setting:
+            speed = speed_setting[0]
+            engine.setProperty('rate', 200 if speed == "Fast" else 100 if speed == "Slow" else 150)
+        
+        logged_in()
+    except VerifyMismatchError:
+        messagebox.showerror("Error", "Invalid password")
 
 def logged_in():
     global current_state
     current_state = "logged_in"
     clear_window()
-    conversation_area = tk.Text(window)
-    conversation_area.pack()
+    
+    # Load voice settings
+    cursor.execute("SELECT voice_speed FROM signup WHERE email=?", (current_user_email,))
+    speed_setting = cursor.fetchone()
+    if speed_setting:
+        speed = speed_setting[0]
+        engine.setProperty('rate', 200 if speed == "Fast" else 100 if speed == "Slow" else 150)
+    
+    conversation_area = tk.Text(window, wrap=tk.WORD)
+    conversation_area.pack(fill=tk.BOTH, expand=True)
+    
+    scrollbar = tk.Scrollbar(conversation_area)
+    scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+    conversation_area.config(yscrollcommand=scrollbar.set)
+    scrollbar.config(command=conversation_area.yview)
+    
+    welcome_msg = "Voice Assistant initialized. Say 'hello' to start or 'exit' to quit.\n\n"
+    conversation_area.insert(tk.END, welcome_msg)
+    speak("Voice Assistant initialized. Say hello to start or exit to quit.")
+    
+    listen_and_respond(conversation_area)
+    
+    button_frame = tk.Frame(window)
+    button_frame.pack(fill=tk.X)
 
     tk.Button(window, text="LOG OUT", command=log_out).pack()
     tk.Button(window, text="History", command=history).pack()
-    tk.Button(window, text="Settings", command=settings).pack()
-    tk.Button(window, text="About Me", command=aboutme_assist).pack()
+    tk.Button(window, text="Settings", command=show_settings).pack()  # Changed to show_settings
+    tk.Button(window, text="About Me", command=about_me).pack()
+
+def show_settings():
+    clear_window()
+    
+    user_info = get_current_user_info()
+    if user_info:
+        current_name, stored_hashed_password = user_info
+
+        # Display user info
+        tk.Label(window, text="Current Name:").pack()
+        name_label = tk.Label(window, text=current_name)
+        name_label.pack()
+
+        tk.Label(window, text="Email:").pack()
+        email_label = tk.Label(window, text=current_user_email)
+        email_label.pack()
+
+        # Name change section (keep this if you want)
+        def ask_for_password():
+            password_window = tk.Toplevel(window)
+            password_window.title("Verify Password")
+            
+            tk.Label(password_window, text="Enter your password:").pack()
+            password_entry = tk.Entry(password_window, show='*')
+            password_entry.pack()
+
+            def verify_password():
+                try:
+                    if ph.verify(stored_hashed_password, password_entry.get()):
+                        password_window.destroy()
+                        change_name_window()
+                    else:
+                        messagebox.showerror("Error", "Incorrect password")
+                except VerifyMismatchError:
+                    messagebox.showerror("Error", "Incorrect password")
+
+            tk.Button(password_window, text="Verify", command=verify_password).pack()
+
+        def change_name_window():
+            change_window = tk.Toplevel(window)
+            change_window.title("Change Name")
+            
+            tk.Label(change_window, text="New name:").pack()
+            new_name_entry = tk.Entry(change_window)
+            new_name_entry.pack()
+
+            def save_new_name():
+                new_name = new_name_entry.get()
+                if new_name:
+                    update_user_info(new_name)
+                    name_label.config(text=new_name)
+                    messagebox.showinfo("Success", "Name updated!")
+                    change_window.destroy()
+
+            tk.Button(change_window, text="Save", command=save_new_name).pack()
+
+        tk.Button(window, text="✏️ Change Name", command=ask_for_password).pack(pady=10)
+
+        # Voice speed settings
+        tk.Label(window, text="\nVoice Speed Settings", font="Arial 12 bold").pack()
+
+        cursor.execute("SELECT voice_speed FROM signup WHERE email=?", (current_user_email,))
+        saved_speed = cursor.fetchone()
+        current_speed = saved_speed[0] if saved_speed else "Normal"
+
+        tk.Label(window, text="Voice Speed:").pack()
+        speed_combobox = Combobox(window, values=["Fast", "Normal", "Slow"], state="readonly")
+        speed_combobox.pack()
+        speed_combobox.set(current_speed)
+
+        def save_voice_settings():
+            new_speed = speed_combobox.get()
+            
+            cursor.execute("""
+                UPDATE signup 
+                SET voice_speed=? 
+                WHERE email=?
+            """, (new_speed, current_user_email))
+            conn.commit()
+            
+            engine.setProperty('rate', 200 if new_speed == "Fast" else 100 if new_speed == "Slow" else 150)
+            
+            engine.say("Voice speed updated")
+            engine.runAndWait()
+            
+            messagebox.showinfo("Saved", "Voice speed updated!")
+
+        tk.Button(window, text="💾 Save Settings", command=save_voice_settings).pack(pady=10)
+        tk.Button(window, text="🔙 Back to Assistant", command=logged_in).pack(pady=5)
+    else:
+        tk.Label(window, text="User not found.").pack()
+
+def get_current_user_info():
+    cursor.execute("SELECT name, password FROM signup WHERE email = ?", (current_user_email,))
+    return cursor.fetchone()
+
+def update_user_info(new_name):
+    cursor.execute("UPDATE signup SET name = ? WHERE email = ?", (new_name, current_user_email))
+    conn.commit()
 
 def about_me():
     clear_window()
     tk.Label(window, text="About this Voice Assistant Project").pack()
     tk.Button(window, text="Back", command=back_to_previous).pack()
 
-def aboutme_assist():
-    clear_window()
-    about_me()
-
 def back_to_previous():
     if current_state == "logged_in":
-        logged_in()  # Return to logged-in page
+        logged_in()
     else:
-        main_screen()  # Return to main menu
+        setup_main_screen()
 
 def history():
     pass
 
-
-def update_user_info(new_name):
-    # Update the user's name in the database
-    cursor.execute("UPDATE signup SET name = ? WHERE email = ?", (new_name, current_user_email))
-    conn.commit()
-
-def get_current_user_info():
-    cursor.execute("SELECT name, password FROM signup WHERE email = ?", (current_user_email,))
-    return cursor.fetchone()  # Returns (name, password)
-
-def settings():
-    clear_window()
-    
-    user_info = get_current_user_info()
-    
-    if user_info:
-        current_name, stored_hashed_password = user_info  # Unpack the name and hashed password
-
-        # Display current name
-        tk.Label(window, text="Current Name:").pack()
-        name_label = tk.Label(window, text=current_name)
-        name_label.pack()
-
-        tk.Label(window, text="EMAIL").pack()
-        name_label = tk.Label(window, text=current_user_email)
-        name_label.pack()
-        
- # Initialize the TTS engine
-        
-        gender_combobox=Combobox(window,values=["Male","Female"],font="arial 14", state="r",width=10)
-        gender_combobox.place(x=550,y=200)
-        gender_combobox.set("Male")
-
-        speed_combobox=Combobox(window,values=["Fast","Normal","Slow"],font="arial 14", state="r",width=10)
-        speed_combobox.place(x=730,y=200)
-        speed_combobox.set("Normal")
-
-
-        def ask_for_password():
-            # Create a new window to ask for the password
-            password_window = tk.Toplevel(window)
-            password_window.title("Verify Password")
-
-            tk.Label(password_window, text="Enter your password:").pack()
-            password_entry = tk.Entry(password_window, show='*')
-            password_entry.pack()
-
-            def verify_password():
-                entered_password = password_entry.get()
-                try:
-                    # Verify the entered password against the stored hashed password
-                    if ph.verify(stored_hashed_password, entered_password):
-                        password_window.destroy()  # Close the password window
-                        change_name_window()  # Open the change name window
-                    else:
-                        messagebox.showerror("Error", "Incorrect password. Please try again.")
-                except VerifyMismatchError:
-                    messagebox.showerror("Error", "Incorrect password. Please try again.")
-
-            tk.Button(password_window, text="Verify", command=verify_password).pack()
-
-        def change_name_window():
-            # Create a new window to change the name
-            change_window = tk.Toplevel(window)
-            change_window.title("Change Name")
-
-            tk.Label(change_window, text="Enter new name:").pack()
-            new_name_entry = tk.Entry(change_window)
-            new_name_entry.pack()
-
-            accept_var = tk.BooleanVar()
-            tk.Checkbutton(change_window, text="I accept to change my name", variable=accept_var).pack()
-
-            def save_new_name():
-                new_name = new_name_entry.get()
-                if accept_var.get() and new_name:
-                    update_user_info(new_name)  # Update the database
-                    name_label.config(text=new_name)  # Update the displayed name
-                    messagebox.showinfo("Success", "Your name has been updated.")
-                    change_window.destroy()  # Close the change name window
-                else:
-                    messagebox.showerror("Error", "Please accept the change and enter a new name.")
-
-            tk.Button(change_window, text="Change Name", command=save_new_name).pack()
-
-        tk.Button(window, text="Change Name", command=ask_for_password).pack()  # Button to change name
-    else:
-        tk.Label(window, text="User  not found.").pack()
-
-def clear_window():
-    for widget in window.winfo_children():
-        widget.destroy()
-
 def log_out():
-    global current_user
+    global current_user, current_user_email
     current_user = None
+    current_user_email = None
     clear_window()
-    main_screen()
+    setup_main_screen()
 
 if __name__ == "__main__":
     window = tk.Tk()
-    setup_main_screen()  # Call this once to set up the main screen
-    window.mainloop()  # Start the Tkinter event loop
+    setup_main_screen()
+    window.mainloop()
