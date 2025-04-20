@@ -202,35 +202,51 @@ def listen_and_respond(conversation_area):
 
     def update_gui(text):
         """Safely update the GUI from main thread"""
-        if conversation_area.winfo_exists():  # Check if widget still exists
+        if conversation_area.winfo_exists():
             conversation_area.insert(tk.END, text)
             conversation_area.see(tk.END)
             window.update()
 
+    def show_listening():
+        """Show listening indicator"""
+        if conversation_area.winfo_exists():
+            conversation_area.insert(tk.END, "Listening...\n")
+            conversation_area.see(tk.END)
+            window.update()
+
+    def hide_listening():
+        """Remove listening indicator"""
+        if conversation_area.winfo_exists():
+            # Remove the last line if it says "Listening..."
+            current_text = conversation_area.get("1.0", tk.END)
+            if current_text.endswith("Listening...\n"):
+                conversation_area.delete("end-2l", "end")
+            window.update()
+
     def listen():
-        """Completely silent listening"""
+        """Listen for user input"""
         with suppress_stderr():
             try:
+                window.after(0, show_listening)
                 with microphone as source:
                     recognizer.adjust_for_ambient_noise(source, duration=0.5)
                     audio = recognizer.listen(source, timeout=5, phrase_time_limit=10)
-                    return recognizer.recognize_google(audio)
+                window.after(0, hide_listening)
+                return recognizer.recognize_google(audio)
             except:
+                window.after(0, hide_listening)
                 return None
-    
+
     def process_command(command):
         if not command or not command.strip():
             return "I didn't catch that. Could you please repeat?"
     
         command = command.strip()
-        print(f"Processing command: {command}")  # Debug
-    
+        print(f"Processing command: {command}")
+
         # Log user command
         if current_session_id:
-            print(f"Logging user command to session {current_session_id}")
             log_conversation(current_session_id, "USER", command)
-        
-        window.after(0, lambda: update_gui(f"USER: {command}\n"))
         
         response = ""
         command_lower = command.lower()
@@ -265,28 +281,21 @@ def listen_and_respond(conversation_area):
                     response = "I couldn't perform the search. Please try again."
         elif "exit" in command_lower or "quit" in command_lower or "stop" in command_lower:
             response = "Goodbye! Have a nice day."
-            conversation_area.insert(tk.END, f"BOT: {response}\n")
-            conversation_area.see(tk.END)
+            window.after(0, lambda: update_gui(f"BOT: {response}\n"))
             speak(response)
             return False
         else:
             response = "I'm not sure how to help with that. Could you try asking something else?"
         
-        conversation_area.insert(tk.END, f"BOT: {response}\n\n")
-        conversation_area.see(tk.END)
-        speak(response)
-
-        window.after(0, lambda: update_gui(f"BOT: {response}\n\n"))
+        # Update GUI and speak only once
+        window.after(0, lambda: update_gui(f"USER: {command}\nBOT: {response}\n\n"))
         speak(response)
 
         if current_session_id and response and response.strip():
-            print(f"Logging bot response to session {current_session_id}")
             log_conversation(current_session_id, "BOT", response.strip())
         
-        
-        
         return True
-    
+
     def assistant_loop():
         while not stop_event.is_set():
             command = listen()
@@ -294,7 +303,8 @@ def listen_and_respond(conversation_area):
                 break
             if not process_command(command):
                 break
-    
+        window.after(0, lambda: hide_listening())
+
     assistant_thread = threading.Thread(target=assistant_loop)
     assistant_thread.daemon = True
     assistant_thread.start()
