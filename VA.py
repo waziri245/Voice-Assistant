@@ -28,11 +28,11 @@ class NullDevice:
 os.environ['PYTHONWARNINGS'] = 'ignore'
 os.environ['ALSA_DEBUG'] = '0'
 os.environ['SDL_AUDIODRIVER'] = 'dummy'
-
+os.environ['PULSE_SERVER'] = 'tcp:localhost'
 # 2. Create a more robust stderr suppressor
 @contextmanager
 def suppress_stderr():
-    """Completely suppress stderr output"""
+    """Completely suppress stderr output including ALSA"""
     with open(os.devnull, 'w') as devnull:
         old_stderr = os.dup(sys.stderr.fileno())
         try:
@@ -59,7 +59,10 @@ class DatabaseManager:
         self.lock = threading.Lock()
         
     def connect(self):
-        self.connection = sqlite3.connect(self.db_path)
+        """Create a new connection for each thread"""
+        if self.connection is None:
+            self.connection = sqlite3.connect(self.db_path, check_same_thread=False)
+            self.connection.execute("PRAGMA foreign_keys = ON")
         return self.connection
         
     def get_cursor(self):
@@ -76,7 +79,22 @@ class DatabaseManager:
                 return cursor
             except sqlite3.Error as e:
                 print(f"Database error: {e}")
-                raise
+                try:
+                    self.connection.rollback()
+                except:
+                    pass
+                # Reconnect on error
+                self.close()
+                self.connect()
+                # Retry once
+                try:
+                    cursor = self.get_cursor()
+                    cursor.execute(query, params)
+                    self.connection.commit()
+                    return cursor
+                except Exception as e2:
+                    print(f"Fatal database error: {e2}")
+                    raise
 
     # Add these methods to your DatabaseManager class:
     def fetchone(self):
@@ -99,7 +117,7 @@ class DatabaseManager:
 
 def initialize_database():
     try:
-        # Create tables if they don't exist
+        # Create all tables in a single transaction
         db_manager.execute("""
             CREATE TABLE IF NOT EXISTS signup (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -132,8 +150,10 @@ def initialize_database():
             )
         """)
         db_manager.commit()
+        print("Database tables created successfully")
     except Exception as e:
         print(f"Error initializing database: {e}")
+        raise  # Re-raise the exception to stop execution
 
 # Global Variables
 current_user = None
@@ -233,7 +253,11 @@ def listen_and_respond(conversation_area):
                     audio = recognizer.listen(source, timeout=5, phrase_time_limit=10)
                 window.after(0, hide_listening)
                 return recognizer.recognize_google(audio)
-            except:
+            except sr.WaitTimeoutError:
+                window.after(0, hide_listening)
+                return None
+            except Exception as e:
+                print(f"Recognition error: {e}")
                 window.after(0, hide_listening)
                 return None
 
@@ -246,7 +270,8 @@ def listen_and_respond(conversation_area):
 
         # Log user command
         if current_session_id:
-            log_conversation(current_session_id, "USER", command)
+            # Use a thread for logging to avoid blocking
+            threading.Thread(target=log_conversation, args=(current_session_id, "USER", command)).start()
         
         response = ""
         command_lower = command.lower()
@@ -288,22 +313,24 @@ def listen_and_respond(conversation_area):
             response = "I'm not sure how to help with that. Could you try asking something else?"
         
         # Update GUI and speak only once
-        window.after(0, lambda: update_gui(f"USER: {command}\nBOT: {response}\n\n"))
+        window.after(0, lambda: update_gui(f"USER: {command}\n"))
+        window.after(0, lambda: update_gui(f"BOT: {response}\n\n"))
         speak(response)
 
         if current_session_id and response and response.strip():
-            log_conversation(current_session_id, "BOT", response.strip())
+            # Use a thread for logging to avoid blocking
+            threading.Thread(target=log_conversation, args=(current_session_id, "BOT", response.strip())).start()
         
         return True
 
     def assistant_loop():
         while not stop_event.is_set():
             command = listen()
-            if command and "exit" in command.lower():
-                break
+            if command is None:
+                continue
             if not process_command(command):
+                stop_event.set()
                 break
-        window.after(0, lambda: hide_listening())
 
     assistant_thread = threading.Thread(target=assistant_loop)
     assistant_thread.daemon = True
@@ -455,16 +482,22 @@ def login(email, password):
         messagebox.showerror("Error", "Invalid password")
 
 def logged_in():
-    global current_state, current_session_id, assistant_stop_event
-    
+    global current_state, current_session_id
     if current_session_id:
-        end_conversation_session(current_session_id)
+        db_manager.execute("SELECT 1 FROM conversation_sessions WHERE session_id = ? AND end_time IS NULL", 
+                          (current_session_id,))
+        if not db_manager.fetchone():
+            current_session_id = None  # Session was closed, need new one
+    
+    # Only start new session if none exists
+    if not current_session_id:
+        current_session_id = start_conversation_session(current_user_email)
+        if not current_session_id:
+            messagebox.showerror("Error", "Could not start conversation session")
+            return
     
     current_state = "logged_in"
     clear_window()
-    
-    # Start new session
-    current_session_id = start_conversation_session(current_user_email)
 
     # Load voice settings
     db_manager.execute("SELECT voice_speed FROM signup WHERE email=?", (current_user_email,))
@@ -498,7 +531,9 @@ def logged_in():
     tk.Button(window, text="History", command=history).pack()
     tk.Button(window, text="Settings", command=show_settings).pack()
     tk.Button(window, text="About Me", command=about_me).pack()
-
+    # Add to your logged_in() function:
+    tk.Button(window, text="Debug: Print Sessions", command=debug_print_sessions).pack()
+    tk.Button(window, text="Debug: Print Logs", command=lambda: debug_print_logs(current_session_id)).pack()
 
 def show_settings():
     clear_window()
@@ -599,80 +634,81 @@ def update_user_info(new_name):
     db_manager.execute("UPDATE signup SET name = ? WHERE email = ?", (new_name, current_user_email))
     db_manager.commit()
 
+def get_user_conversation_sessions(email):
+    """Thread-safe function to get all sessions for a user"""
+    def _get_sessions():
+        try:
+            cursor = db_manager.execute(
+                "SELECT session_id, start_time, end_time "
+                "FROM conversation_sessions "
+                "WHERE user_email = ? "
+                "ORDER BY start_time DESC",
+                (email,)
+            )
+            return cursor.fetchall()
+        except Exception as e:
+            print(f"Error getting sessions: {e}")
+            return []
+    
+    # Run in main thread to avoid SQLite threading issues
+    if window and window.winfo_exists():
+        result = []
+        window.after(0, lambda: result.extend(_get_sessions()))
+        while not result:  # Wait for result
+            window.update()
+        return result
+    return _get_sessions()
+
 # Add these near your other database functions
 def start_conversation_session(email):
-    db_manager.execute("INSERT INTO conversation_sessions (user_email, start_time) VALUES (?, datetime('now'))", (email,))
-    db_manager.commit()
-    return db_manager.lastrowid
+    try:
+        cursor = db_manager.execute(
+            "INSERT INTO conversation_sessions (user_email, start_time) VALUES (?, datetime('now'))",
+            (email,)
+        )
+        db_manager.commit()
+        print(f"Started new session with ID: {cursor.lastrowid}")
+        return cursor.lastrowid
+    except Exception as e:
+        print(f"Error starting session: {e}")
+        return None
 
 def end_conversation_session(session_id):
     if not session_id:
         return
-        
     try:
-        with db_manager.lock:
-            print(f"Ending session {session_id}")  # Debug
-            db_manager.execute(
-                "UPDATE conversation_sessions SET end_time = datetime('now') WHERE session_id = ?", 
-                (session_id,)
-            )
-            db_manager.commit()
+        db_manager.execute(
+            "UPDATE conversation_sessions SET end_time = datetime('now') WHERE session_id = ?",
+            (session_id,)
+        )
+        db_manager.commit()
+        print(f"Ended session {session_id}")
     except Exception as e:
-        print(f"Failed to end session {session_id}: {e}")
-        # Emergency save
-        try:
-            db_manager.execute(
-                "UPDATE conversation_sessions SET end_time = datetime('now') WHERE session_id = ?", 
-                (session_id,)
-            )
-            db_manager.commit()
-        except:
-            pass
+        print(f"Error ending session {session_id}: {e}")
 
 def log_conversation(session_id, speaker, message):
-    if not message or not message.strip():
+    if not session_id or not message or not message.strip():
         return
         
     try:
-        with db_manager.lock:
-            # Print debug info (remove after testing)
-            print(f"Attempting to log: Session {session_id}, {speaker}: {message[:50]}...")
-            
-            cursor = db_manager.execute(
-                "INSERT INTO conversation_logs (session_id, timestamp, speaker, message) VALUES (?, datetime('now'), ?, ?)",
-                (session_id, speaker, message.strip())
-            )
-            db_manager.commit()
-            print("Log successful!")  # Debug
+        db_manager.execute(
+            "INSERT INTO conversation_logs (session_id, timestamp, speaker, message) VALUES (?, datetime('now'), ?, ?)",
+            (session_id, speaker, message.strip())
+        )
+        db_manager.commit()
+        print(f"Logged message for session {session_id}")
     except Exception as e:
-        print(f"CRITICAL LOG FAILURE: {str(e)}")
-        # Try one more time
-        try:
-            db_manager.execute(
-                "INSERT INTO conversation_logs (session_id, timestamp, speaker, message) VALUES (?, datetime('now'), ?, ?)",
-                (session_id, speaker, message.strip())
-            )
-            db_manager.commit()
-        except:
-            pass
-
-def get_user_conversation_sessions(email):
-    db_manager.execute("""
-        SELECT session_id, start_time, end_time 
-        FROM conversation_sessions 
-        WHERE user_email = ?
-        ORDER BY start_time DESC
-    """, (email,))
-    return db_manager.fetchall()
+        print(f"Failed to log message for session {session_id}: {e}")
 
 def get_conversation_logs(session_id):
-    db_manager.execute("""
-        SELECT timestamp, speaker, message 
-        FROM conversation_logs 
-        WHERE session_id = ?
-        ORDER BY timestamp
-    """, (session_id,))
-    return db_manager.fetchall()
+    with db_manager.lock:
+        db_manager.execute("""
+            SELECT timestamp, speaker, message 
+            FROM conversation_logs 
+            WHERE session_id = ?
+            ORDER BY timestamp
+        """, (session_id,))
+        return db_manager.fetchall()
 
 def about_me():
     clear_window()
@@ -690,7 +726,16 @@ def history():
     global current_state
     current_state = "history"
     
+    # Create a loading message
+    loading_label = tk.Label(window, text="Loading history...")
+    loading_label.pack()
+    window.update()  # Force UI update
+    
+    # Get sessions in a thread-safe way
     sessions = get_user_conversation_sessions(current_user_email)
+    
+    # Remove loading message
+    loading_label.destroy()
     
     if not sessions:
         tk.Label(window, text="No conversation history found").pack()
@@ -699,16 +744,51 @@ def history():
     
     tk.Label(window, text="Your Conversation History", font=("Arial", 14)).pack(pady=10)
     
+    # Create a scrollable frame for sessions
+    session_frame = tk.Frame(window)
+    session_frame.pack(fill=tk.BOTH, expand=True)
+    
+    canvas = tk.Canvas(session_frame)
+    scrollbar = tk.Scrollbar(session_frame, orient="vertical", command=canvas.yview)
+    scrollable_frame = tk.Frame(canvas)
+    
+    scrollable_frame.bind(
+        "<Configure>",
+        lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+    
+    canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+    canvas.configure(yscrollcommand=scrollbar.set)
+    
+    canvas.pack(side="left", fill="both", expand=True)
+    scrollbar.pack(side="right", fill="y")
+    
     for session in sessions:
         session_id, start_time, end_time = session
-        btn_text = f"Session from {start_time} to {end_time if end_time else 'now'}"
+        btn_text = format_session_time(start_time, end_time)
         
-        def show_session(session_id=session_id):
-            view_conversation(session_id)
-            
-        tk.Button(window, text=btn_text, command=show_session).pack(fill=tk.X, padx=20, pady=5)
+        btn = tk.Button(
+            scrollable_frame, 
+            text=btn_text,
+            command=lambda sid=session_id: view_conversation(sid),
+            anchor="w",
+            width=60,
+            wraplength=400
+        )
+        btn.pack(fill=tk.X, padx=5, pady=2)
     
     tk.Button(window, text="Back to Assistant", command=logged_in).pack(pady=10)
+
+def format_session_time(start_time, end_time=None):
+    try:
+        start = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
+        if end_time:
+            end = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S')
+            duration = end - start
+            mins = duration.seconds // 60
+            return f"{start.strftime('%b %d, %Y %H:%M')} - {end.strftime('%H:%M')} ({mins} minutes)"
+        return f"{start.strftime('%b %d, %Y %H:%M')} - in progress"
+    except:
+        return f"{start_time} - {end_time if end_time else 'in progress'}"
 
 def view_conversation(session_id):
     clear_window()
@@ -747,39 +827,65 @@ def log_out():
     clear_window()
     setup_main_screen()
 
+
+def debug_print_sessions():
+    print("\nCurrent sessions in database:")
+    db_manager.execute("SELECT * FROM conversation_sessions")
+    sessions = db_manager.fetchall()
+    for session in sessions:
+        print(session)
+
+def debug_print_logs(session_id=None):
+    print("\nCurrent logs in database:")
+    if session_id:
+        db_manager.execute("SELECT * FROM conversation_logs WHERE session_id = ?", (session_id,))
+    else:
+        db_manager.execute("SELECT * FROM conversation_logs")
+    logs = db_manager.fetchall()
+    for log in logs:
+        print(log)
+
 if __name__ == "__main__":
-    # Verify database structure
-    db_manager = DatabaseManager('user.db')
     try:
+        db_manager = DatabaseManager('user.db')
         initialize_database()
-        # Test database connection
-        db_manager.execute("SELECT name FROM sqlite_master WHERE type='table'")
         print("Database initialized successfully")
+        
+        window = tk.Tk()
+        setup_main_screen()
+        
+        def on_closing():
+            try:
+                global current_session_id, engine
+                if current_session_id:
+                    end_conversation_session(current_session_id)
+                if db_manager:
+                    db_manager.close()
+                if engine:
+                    engine.stop()
+            except Exception as e:
+                print(f"Error during shutdown: {e}")
+            finally:
+                window.destroy()
+        
+        # Add exception handler for main loop
+        def excepthook(type, value, traceback):
+            print(f"Unhandled exception: {value}")
+            try:
+                if current_session_id:
+                    end_conversation_session(current_session_id)
+                if db_manager:
+                    db_manager.close()
+            except:
+                pass
+            sys.__excepthook__(type, value, traceback)
+        
+        sys.excepthook = excepthook
+        
+        window.mainloop()
+        
     except Exception as e:
-        print(f"Database initialization failed: {e}")
-        # Try recreating database
-        try:
-            os.remove('user.db')
-            db_manager = DatabaseManager('user.db')
-            initialize_database()
-            print("Recreated database successfully")
-        except:
-            print("Fatal database error")
-            exit(1)
-    
-    # Rest of your main code...
-    
-    window = tk.Tk()
-    setup_main_screen()
-    
-    def on_closing():
-        if current_user_email and current_session_id:
-            db_manager.execute(
-                "UPDATE conversation_sessions SET end_time = datetime('now') WHERE session_id = ?",
-                (current_session_id,)
-            )
-        db_manager.close()
-        window.destroy()
-    
-    window.protocol("WM_DELETE_WINDOW", on_closing)
-    window.mainloop()
+        print(f"Initialization failed: {e}")
+        if 'db_manager' in locals():
+            db_manager.close()
+        sys.exit(1)
