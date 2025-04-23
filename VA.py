@@ -23,12 +23,13 @@ class NullDevice:
     def __exit__(self, exc_type, exc_val, exc_tb):
         pass
 
-
 # 1. Set ALSA environment variables to suppress warnings
 os.environ['PYTHONWARNINGS'] = 'ignore'
 os.environ['ALSA_DEBUG'] = '0'
 os.environ['SDL_AUDIODRIVER'] = 'dummy'
 os.environ['PULSE_SERVER'] = 'tcp:localhost'
+os.environ['ALSA_CARD'] = '0'
+
 # 2. Create a more robust stderr suppressor
 @contextmanager
 def suppress_stderr():
@@ -49,8 +50,6 @@ with suppress_stderr():
 with suppress_stderr():
     import pyttsx3
     engine = pyttsx3.init()
-
-
 
 class DatabaseManager:
     def __init__(self, db_path):
@@ -73,6 +72,8 @@ class DatabaseManager:
     def execute(self, query, params=()):
         with self.lock:
             try:
+                if not self.connection:
+                    self.connect()
                 cursor = self.get_cursor()
                 cursor.execute(query, params)
                 self.connection.commit()
@@ -80,10 +81,11 @@ class DatabaseManager:
             except sqlite3.Error as e:
                 print(f"Database error: {e}")
                 try:
-                    self.connection.rollback()
+                    if self.connection:
+                        self.connection.rollback()
                 except:
                     pass
-                # Reconnect on error
+                # Close and reconnect
                 self.close()
                 self.connect()
                 # Retry once
@@ -94,9 +96,8 @@ class DatabaseManager:
                     return cursor
                 except Exception as e2:
                     print(f"Fatal database error: {e2}")
-                    raise
+                    return self.get_cursor()
 
-    # Add these methods to your DatabaseManager class:
     def fetchone(self):
         return self.get_cursor().fetchone()
 
@@ -114,12 +115,11 @@ class DatabaseManager:
         if self.connection:
             self.connection.close()
 
-
 def initialize_database():
     try:
-        # Create all tables in a single transaction
+        # Create tables if they don't exist
         db_manager.execute("""
-            CREATE TABLE IF NOT EXISTS signup (
+            CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT,
                 last_name TEXT,
@@ -130,38 +130,26 @@ def initialize_database():
         """)
         
         db_manager.execute("""
-            CREATE TABLE IF NOT EXISTS conversation_sessions (
-                session_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            CREATE TABLE IF NOT EXISTS conversations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_email TEXT,
-                start_time DATETIME,
-                end_time DATETIME,
-                FOREIGN KEY(user_email) REFERENCES signup(email)
-            )
-        """)
-        
-        db_manager.execute("""
-            CREATE TABLE IF NOT EXISTS conversation_logs (
-                log_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                session_id INTEGER,
-                timestamp DATETIME,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
                 speaker TEXT,
                 message TEXT,
-                FOREIGN KEY(session_id) REFERENCES conversation_sessions(session_id)
+                FOREIGN KEY(user_email) REFERENCES users(email)
             )
         """)
         db_manager.commit()
-        print("Database tables created successfully")
     except Exception as e:
         print(f"Error initializing database: {e}")
-        raise  # Re-raise the exception to stop execution
+        raise
 
 # Global Variables
 current_user = None
 window = None
 current_state = "main"
 current_user_email = None
-current_session_id = None  # Add with your other global variables
-
+assistant_stop_event = threading.Event()  # Add this near your other global variables
 # Initialize Argon2 Password Hasher
 ph = PasswordHasher()
 
@@ -171,7 +159,6 @@ current_rate = engine.getProperty('rate')
 
 # Connect to the SQLite database
 db_manager = DatabaseManager('user.db')
-
 
 def speak(text):
     """Thread-safe text-to-speech"""
@@ -183,7 +170,6 @@ def speak(text):
             except Exception as e:
                 print(f"Speech error: {e}")
     
-    # Run in main thread
     window.after(0, _speak)
 
 def get_working_microphone():
@@ -191,20 +177,23 @@ def get_working_microphone():
     with suppress_stderr():
         recognizer = sr.Recognizer()
         try:
-            # Try default microphone first
+            if hasattr(get_working_microphone, 'mic'):
+                get_working_microphone.mic = None
+                
             mic = sr.Microphone()
             with mic as source:
                 recognizer.adjust_for_ambient_noise(source, duration=0.5)
+            get_working_microphone.mic = mic
             return mic
         except:
             pass
         
-        # Try specific device indexes
         for i in range(5):
             try:
                 mic = sr.Microphone(device_index=i)
                 with mic as source:
                     recognizer.adjust_for_ambient_noise(source, duration=0.5)
+                get_working_microphone.mic = mic
                 return mic
             except:
                 continue
@@ -219,32 +208,28 @@ def listen_and_respond(conversation_area):
         return None
 
     stop_event = threading.Event()
+    processing_lock = threading.Lock()
 
     def update_gui(text):
-        """Safely update the GUI from main thread"""
         if conversation_area.winfo_exists():
             conversation_area.insert(tk.END, text)
             conversation_area.see(tk.END)
             window.update()
 
     def show_listening():
-        """Show listening indicator"""
         if conversation_area.winfo_exists():
             conversation_area.insert(tk.END, "Listening...\n")
             conversation_area.see(tk.END)
             window.update()
 
     def hide_listening():
-        """Remove listening indicator"""
         if conversation_area.winfo_exists():
-            # Remove the last line if it says "Listening..."
             current_text = conversation_area.get("1.0", tk.END)
             if current_text.endswith("Listening...\n"):
                 conversation_area.delete("end-2l", "end")
             window.update()
 
     def listen():
-        """Listen for user input"""
         with suppress_stderr():
             try:
                 window.after(0, show_listening)
@@ -263,74 +248,77 @@ def listen_and_respond(conversation_area):
 
     def process_command(command):
         if not command or not command.strip():
-            return "I didn't catch that. Could you please repeat?"
-    
-        command = command.strip()
-        print(f"Processing command: {command}")
+            return None
+            
+        with processing_lock:
+            command = command.strip()
+            print(f"Processing command: {command}")
 
-        # Log user command
-        if current_session_id:
-            # Use a thread for logging to avoid blocking
-            threading.Thread(target=log_conversation, args=(current_session_id, "USER", command)).start()
-        
-        response = ""
-        command_lower = command.lower()
-        
-        if any(greeting in command_lower for greeting in ["hello", "hi", "hey"]):
-            response = "Hello! How can I help you today?"
-        elif "time" in command_lower:
-            response = f"The current time is {datetime.now().strftime('%H:%M')}"
-        elif "date" in command_lower:
-            response = f"Today's date is {datetime.now().strftime('%B %d, %Y')}"
-        elif "open" in command_lower:
-            app = command_lower.replace("open", "").strip()
-            response = f"Opening {app}"
-            try:
-                if "chrome" in app or "browser" in app:
-                    subprocess.Popen(["google-chrome"])
-                elif "terminal" in app:
-                    subprocess.Popen(["gnome-terminal"])
-                elif "file" in app or "explorer" in app:
-                    subprocess.Popen(["nautilus"])
-                else:
-                    response = f"I'm not sure how to open {app}"
-            except Exception as e:
-                response = f"Sorry, I couldn't open {app}. Error: {str(e)}"
-        elif "search" in command_lower:
-            query = command_lower.replace("search", "").strip()
-            if query:
-                response = f"Searching the web for {query}"
+            log_conversation(current_user_email, "USER", command)
+            
+            response = ""
+            command_lower = command.lower()
+            
+            if any(greeting in command_lower for greeting in ["hello", "hi", "hey"]):
+                response = "Hello! How can I help you today?"
+            elif "time" in command_lower:
+                response = f"The current time is {datetime.now().strftime('%H:%M')}"
+            elif "date" in command_lower:
+                response = f"Today's date is {datetime.now().strftime('%B %d, %Y')}"
+            elif "open" in command_lower:
+                app = command_lower.replace("open", "").strip()
+                response = f"Opening {app}"
                 try:
-                    subprocess.Popen(["google-chrome", f"https://www.google.com/search?q={query}"])
-                except:
-                    response = "I couldn't perform the search. Please try again."
-        elif "exit" in command_lower or "quit" in command_lower or "stop" in command_lower:
-            response = "Goodbye! Have a nice day."
-            window.after(0, lambda: update_gui(f"BOT: {response}\n"))
-            speak(response)
-            return False
-        else:
-            response = "I'm not sure how to help with that. Could you try asking something else?"
-        
-        # Update GUI and speak only once
-        window.after(0, lambda: update_gui(f"USER: {command}\n"))
-        window.after(0, lambda: update_gui(f"BOT: {response}\n\n"))
-        speak(response)
-
-        if current_session_id and response and response.strip():
-            # Use a thread for logging to avoid blocking
-            threading.Thread(target=log_conversation, args=(current_session_id, "BOT", response.strip())).start()
-        
-        return True
+                    if "chrome" in app or "browser" in app:
+                        subprocess.Popen(["google-chrome"])
+                    elif "terminal" in app:
+                        subprocess.Popen(["gnome-terminal"])
+                    elif "file" in app or "explorer" in app:
+                        subprocess.Popen(["nautilus"])
+                    else:
+                        response = f"I'm not sure how to open {app}"
+                except Exception as e:
+                    response = f"Sorry, I couldn't open {app}. Error: {str(e)}"
+            elif "search" in command_lower:
+                query = command_lower.replace("search", "").strip()
+                if query:
+                    response = f"Searching the web for {query}"
+                    try:
+                        subprocess.Popen(["google-chrome", f"https://www.google.com/search?q={query}"])
+                    except:
+                        response = "I couldn't perform the search. Please try again."
+            elif "exit" in command_lower or "quit" in command_lower or "stop" in command_lower:
+                response = "Goodbye! Have a nice day."
+                window.after(0, lambda: update_gui(f"BOT: {response}\n"))
+                speak(response)
+                return False
+            else:
+                response = "I'm not sure how to help with that. Could you try asking something else?"
+            
+            if response:
+                log_conversation(current_user_email, "BOT", response)
+            
+            return response
 
     def assistant_loop():
+        last_command = None
         while not stop_event.is_set():
             command = listen()
-            if command is None:
+            if command is None or command == last_command:
                 continue
-            if not process_command(command):
+                
+            response = process_command(command)
+            if response is False:
                 stop_event.set()
                 break
+            if response is None:
+                continue
+                
+            last_command = command
+            
+            window.after(0, lambda: update_gui(f"USER: {command}\n"))
+            window.after(0, lambda: update_gui(f"BOT: {response}\n\n"))
+            speak(response)
 
     assistant_thread = threading.Thread(target=assistant_loop)
     assistant_thread.daemon = True
@@ -352,7 +340,6 @@ def setup_main_screen():
 def clear_window():
     global assistant_stop_event
     
-    # Stop any running assistant thread
     if 'assistant_stop_event' in globals() and assistant_stop_event:
         assistant_stop_event.set()
     
@@ -400,13 +387,13 @@ def sign_up():
             messagebox.showerror("Error", "Passwords do not match")
             return
 
-        db_manager.execute("SELECT * FROM signup WHERE email = ?", (email,))
+        db_manager.execute("SELECT * FROM users WHERE email = ?", (email,))
         if db_manager.fetchone():
             messagebox.showerror("Error", f"User with email '{email}' already exists.")
             return
 
         hashed_password = ph.hash(password)
-        db_manager.execute("INSERT INTO signup (name, last_name, email, password) VALUES (?, ?, ?, ?)", 
+        db_manager.execute("INSERT INTO users (name, last_name, email, password) VALUES (?, ?, ?, ?)", 
                       (name, last_name, email, hashed_password))
         db_manager.commit()
         messagebox.showinfo("Success", "User account created successfully.")
@@ -437,7 +424,7 @@ def sign_up():
     tk.Button(window, text="Main Menu", command=setup_main_screen).pack()
 
 def get_user_from_database(email):
-    cursor = db_manager.execute("SELECT * FROM signup WHERE email = ?", (email,))
+    cursor = db_manager.execute("SELECT * FROM users WHERE email = ?", (email,))
     return cursor.fetchone()
 
 def sign_in():
@@ -471,42 +458,37 @@ def login(email, password):
         current_user = user
         current_user_email = email
         
-        db_manager.execute("SELECT voice_speed FROM signup WHERE email=?", (email,))
+        db_manager.execute("SELECT voice_speed FROM users WHERE email=?", (email,))
         speed_setting = db_manager.fetchone()
         if speed_setting:
             speed = speed_setting[0]
             engine.setProperty('rate', 200 if speed == "Fast" else 100 if speed == "Slow" else 150)
-        
+       
+        print(f"\n=== LOGIN SUCCESSFUL ===")
+        print(f"User: {email}")
         logged_in()
     except VerifyMismatchError:
         messagebox.showerror("Error", "Invalid password")
 
 def logged_in():
-    global current_state, current_session_id
-    if current_session_id:
-        db_manager.execute("SELECT 1 FROM conversation_sessions WHERE session_id = ? AND end_time IS NULL", 
-                          (current_session_id,))
-        if not db_manager.fetchone():
-            current_session_id = None  # Session was closed, need new one
+    global current_state, assistant_stop_event
     
-    # Only start new session if none exists
-    if not current_session_id:
-        current_session_id = start_conversation_session(current_user_email)
-        if not current_session_id:
-            messagebox.showerror("Error", "Could not start conversation session")
-            return
+    # Stop any existing assistant
+    if assistant_stop_event:
+        assistant_stop_event.set()
+    
+    # Create a new event for the new assistant
+    assistant_stop_event = threading.Event()
     
     current_state = "logged_in"
     clear_window()
-
-    # Load voice settings
-    db_manager.execute("SELECT voice_speed FROM signup WHERE email=?", (current_user_email,))
+    
+    db_manager.execute("SELECT voice_speed FROM users WHERE email=?", (current_user_email,))
     speed_setting = db_manager.fetchone()
     if speed_setting:
         speed = speed_setting[0]
         engine.setProperty('rate', 200 if speed == "Fast" else 100 if speed == "Slow" else 150)
     
-    # Create conversation area
     conversation_area = tk.Text(window, wrap=tk.WORD)
     conversation_area.pack(fill=tk.BOTH, expand=True)
     
@@ -515,25 +497,21 @@ def logged_in():
     conversation_area.config(yscrollcommand=scrollbar.set)
     scrollbar.config(command=conversation_area.yview)
     
-    # Welcome message
-    welcome_msg = "Voice Assistant initialized. Say 'hello' to start or 'exit' to quit.\n\n"
+    welcome_msg = f"Voice Assistant - Logged in as {current_user_email}\n\n"
     conversation_area.insert(tk.END, welcome_msg)
     speak("Voice Assistant initialized. Say hello to start or exit to quit.")
     
-    # Start assistant (ONCE)
+    if 'assistant_stop_event' in globals():
+        assistant_stop_event.set()
     assistant_stop_event = listen_and_respond(conversation_area)
     
-    # Add control buttons
     button_frame = tk.Frame(window)
     button_frame.pack(fill=tk.X)
 
     tk.Button(window, text="LOG OUT", command=log_out).pack()
-    tk.Button(window, text="History", command=history).pack()
+    tk.Button(window, text="History", command=show_history).pack()
     tk.Button(window, text="Settings", command=show_settings).pack()
     tk.Button(window, text="About Me", command=about_me).pack()
-    # Add to your logged_in() function:
-    tk.Button(window, text="Debug: Print Sessions", command=debug_print_sessions).pack()
-    tk.Button(window, text="Debug: Print Logs", command=lambda: debug_print_logs(current_session_id)).pack()
 
 def show_settings():
     clear_window()
@@ -542,7 +520,6 @@ def show_settings():
     if user_info:
         current_name, stored_hashed_password = user_info
 
-        # Display user info
         tk.Label(window, text="Current Name:").pack()
         name_label = tk.Label(window, text=current_name)
         name_label.pack()
@@ -551,7 +528,6 @@ def show_settings():
         email_label = tk.Label(window, text=current_user_email)
         email_label.pack()
 
-        # Name change section (keep this if you want)
         def ask_for_password():
             password_window = tk.Toplevel(window)
             password_window.title("Verify Password")
@@ -592,10 +568,9 @@ def show_settings():
 
         tk.Button(window, text="✏️ Change Name", command=ask_for_password).pack(pady=10)
 
-        # Voice speed settings
         tk.Label(window, text="\nVoice Speed Settings", font="Arial 12 bold").pack()
 
-        db_manager.execute("SELECT voice_speed FROM signup WHERE email=?", (current_user_email,))
+        db_manager.execute("SELECT voice_speed FROM users WHERE email=?", (current_user_email,))
         saved_speed = db_manager.fetchone()
         current_speed = saved_speed[0] if saved_speed else "Normal"
 
@@ -608,7 +583,7 @@ def show_settings():
             new_speed = speed_combobox.get()
             
             db_manager.execute("""
-                UPDATE signup 
+                UPDATE users 
                 SET voice_speed=? 
                 WHERE email=?
             """, (new_speed, current_user_email))
@@ -627,88 +602,70 @@ def show_settings():
         tk.Label(window, text="User not found.").pack()
 
 def get_current_user_info():
-    db_manager.execute("SELECT name, password FROM signup WHERE email = ?", (current_user_email,))
+    db_manager.execute("SELECT name, password FROM users WHERE email = ?", (current_user_email,))
     return db_manager.fetchone()
 
 def update_user_info(new_name):
-    db_manager.execute("UPDATE signup SET name = ? WHERE email = ?", (new_name, current_user_email))
+    db_manager.execute("UPDATE users SET name = ? WHERE email = ?", (new_name, current_user_email))
     db_manager.commit()
 
-def get_user_conversation_sessions(email):
-    """Thread-safe function to get all sessions for a user"""
-    def _get_sessions():
-        try:
-            cursor = db_manager.execute(
-                "SELECT session_id, start_time, end_time "
-                "FROM conversation_sessions "
-                "WHERE user_email = ? "
-                "ORDER BY start_time DESC",
-                (email,)
-            )
-            return cursor.fetchall()
-        except Exception as e:
-            print(f"Error getting sessions: {e}")
-            return []
+def log_conversation(email, speaker, message):
+    try:
+        db_manager.execute(
+            "INSERT INTO conversations (user_email, speaker, message) VALUES (?, ?, ?)",
+            (email, speaker, message.strip())
+        )
+        db_manager.commit()  # Ensure this is here
+    except Exception as e:
+        print(f"Failed to log conversation: {e}")
+
+def show_history():
+    clear_window()
     
-    # Run in main thread to avoid SQLite threading issues
-    if window and window.winfo_exists():
-        result = []
-        window.after(0, lambda: result.extend(_get_sessions()))
-        while not result:  # Wait for result
-            window.update()
-        return result
-    return _get_sessions()
-
-# Add these near your other database functions
-def start_conversation_session(email):
-    try:
-        cursor = db_manager.execute(
-            "INSERT INTO conversation_sessions (user_email, start_time) VALUES (?, datetime('now'))",
-            (email,)
-        )
-        db_manager.commit()
-        print(f"Started new session with ID: {cursor.lastrowid}")
-        return cursor.lastrowid
-    except Exception as e:
-        print(f"Error starting session: {e}")
-        return None
-
-def end_conversation_session(session_id):
-    if not session_id:
-        return
-    try:
-        db_manager.execute(
-            "UPDATE conversation_sessions SET end_time = datetime('now') WHERE session_id = ?",
-            (session_id,)
-        )
-        db_manager.commit()
-        print(f"Ended session {session_id}")
-    except Exception as e:
-        print(f"Error ending session {session_id}: {e}")
-
-def log_conversation(session_id, speaker, message):
-    if not session_id or not message or not message.strip():
-        return
-        
-    try:
-        db_manager.execute(
-            "INSERT INTO conversation_logs (session_id, timestamp, speaker, message) VALUES (?, datetime('now'), ?, ?)",
-            (session_id, speaker, message.strip())
-        )
-        db_manager.commit()
-        print(f"Logged message for session {session_id}")
-    except Exception as e:
-        print(f"Failed to log message for session {session_id}: {e}")
-
-def get_conversation_logs(session_id):
-    with db_manager.lock:
-        db_manager.execute("""
-            SELECT timestamp, speaker, message 
-            FROM conversation_logs 
-            WHERE session_id = ?
-            ORDER BY timestamp
-        """, (session_id,))
-        return db_manager.fetchall()
+    # Debug: Print current user email
+    print(f"DEBUG: Current user email is: '{current_user_email}'")
+    
+    # Create a frame for the history display
+    frame = tk.Frame(window)
+    frame.pack(fill=tk.BOTH, expand=True)
+    
+    # Create text widget with scrollbar
+    text_area = tk.Text(frame, wrap=tk.WORD)
+    scrollbar = tk.Scrollbar(frame, command=text_area.yview)
+    text_area.config(yscrollcommand=scrollbar.set)
+    
+    # Pack them properly
+    scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+    text_area.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+    
+    # Debug: Print the query we're about to execute
+    query = "SELECT timestamp, speaker, message FROM conversations WHERE user_email = ? ORDER BY timestamp DESC"
+    print(f"DEBUG: Executing query: {query} with email: '{current_user_email}'")
+    
+    # Fetch conversations from database
+    cursor = db_manager.execute(query, (current_user_email,))
+    conversations = cursor.fetchall()
+    
+    # Debug: Print the results we got
+    print(f"DEBUG: Found {len(conversations)} conversations")
+    for i, conv in enumerate(conversations):
+        print(f"DEBUG: Conversation {i}: {conv}")
+    
+    if not conversations:
+        text_area.insert(tk.END, "No conversation history found")
+    else:
+        text_area.insert(tk.END, "Conversation History:\n\n")
+        for timestamp, speaker, message in conversations:
+            text_area.insert(tk.END, f"{timestamp} - {speaker}: {message}\n\n")
+    
+    # Make text area read-only
+    text_area.config(state=tk.DISABLED)
+    
+    # Add back button at bottom
+    tk.Button(window, text="Back to Assistant", command=logged_in).pack()
+    
+    # Force update the display
+    window.update()
 
 def about_me():
     clear_window()
@@ -721,129 +678,16 @@ def back_to_previous():
     else:
         setup_main_screen()
 
-def history():
-    clear_window()
-    global current_state
-    current_state = "history"
-    
-    # Create a loading message
-    loading_label = tk.Label(window, text="Loading history...")
-    loading_label.pack()
-    window.update()  # Force UI update
-    
-    # Get sessions in a thread-safe way
-    sessions = get_user_conversation_sessions(current_user_email)
-    
-    # Remove loading message
-    loading_label.destroy()
-    
-    if not sessions:
-        tk.Label(window, text="No conversation history found").pack()
-        tk.Button(window, text="Back", command=logged_in).pack()
-        return
-    
-    tk.Label(window, text="Your Conversation History", font=("Arial", 14)).pack(pady=10)
-    
-    # Create a scrollable frame for sessions
-    session_frame = tk.Frame(window)
-    session_frame.pack(fill=tk.BOTH, expand=True)
-    
-    canvas = tk.Canvas(session_frame)
-    scrollbar = tk.Scrollbar(session_frame, orient="vertical", command=canvas.yview)
-    scrollable_frame = tk.Frame(canvas)
-    
-    scrollable_frame.bind(
-        "<Configure>",
-        lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-    
-    canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-    canvas.configure(yscrollcommand=scrollbar.set)
-    
-    canvas.pack(side="left", fill="both", expand=True)
-    scrollbar.pack(side="right", fill="y")
-    
-    for session in sessions:
-        session_id, start_time, end_time = session
-        btn_text = format_session_time(start_time, end_time)
-        
-        btn = tk.Button(
-            scrollable_frame, 
-            text=btn_text,
-            command=lambda sid=session_id: view_conversation(sid),
-            anchor="w",
-            width=60,
-            wraplength=400
-        )
-        btn.pack(fill=tk.X, padx=5, pady=2)
-    
-    tk.Button(window, text="Back to Assistant", command=logged_in).pack(pady=10)
-
-def format_session_time(start_time, end_time=None):
-    try:
-        start = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
-        if end_time:
-            end = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S')
-            duration = end - start
-            mins = duration.seconds // 60
-            return f"{start.strftime('%b %d, %Y %H:%M')} - {end.strftime('%H:%M')} ({mins} minutes)"
-        return f"{start.strftime('%b %d, %Y %H:%M')} - in progress"
-    except:
-        return f"{start_time} - {end_time if end_time else 'in progress'}"
-
-def view_conversation(session_id):
-    clear_window()
-    logs = get_conversation_logs(session_id)
-    
-    tk.Label(window, text="Conversation Details", font=("Arial", 14)).pack(pady=10)
-    
-    text_area = tk.Text(window, wrap=tk.WORD)
-    scrollbar = tk.Scrollbar(window, command=text_area.yview)
-    text_area.configure(yscrollcommand=scrollbar.set)
-    
-    scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-    text_area.pack(fill=tk.BOTH, expand=True)
-    
-    for log in logs:
-        timestamp, speaker, message = log
-        text_area.insert(tk.END, f"{timestamp} - {speaker}: {message}\n\n")
-    
-    text_area.config(state=tk.DISABLED)
-    tk.Button(window, text="Back to History", command=history).pack(pady=10)
-
 def log_out():
-    global current_user, current_user_email, current_session_id, assistant_stop_event
+    global current_user, current_user_email, assistant_stop_event
     
-    # Stop assistant thread
     if 'assistant_stop_event' in globals() and assistant_stop_event:
         assistant_stop_event.set()
-    
-    # End current session
-    if current_session_id:
-        end_conversation_session(current_session_id)
-        current_session_id = None
     
     current_user = None
     current_user_email = None
     clear_window()
     setup_main_screen()
-
-
-def debug_print_sessions():
-    print("\nCurrent sessions in database:")
-    db_manager.execute("SELECT * FROM conversation_sessions")
-    sessions = db_manager.fetchall()
-    for session in sessions:
-        print(session)
-
-def debug_print_logs(session_id=None):
-    print("\nCurrent logs in database:")
-    if session_id:
-        db_manager.execute("SELECT * FROM conversation_logs WHERE session_id = ?", (session_id,))
-    else:
-        db_manager.execute("SELECT * FROM conversation_logs")
-    logs = db_manager.fetchall()
-    for log in logs:
-        print(log)
 
 if __name__ == "__main__":
     try:
@@ -856,25 +700,21 @@ if __name__ == "__main__":
         
         def on_closing():
             try:
-                global current_session_id, engine
-                if current_session_id:
-                    end_conversation_session(current_session_id)
-                if db_manager:
+                if 'assistant_stop_event' in globals() and assistant_stop_event:
+                    assistant_stop_event.set()
+                if 'db_manager' in globals():
                     db_manager.close()
-                if engine:
+                if 'engine' in globals():
                     engine.stop()
             except Exception as e:
-                print(f"Error during shutdown: {e}")
+                print(f"Close error: {e}")
             finally:
                 window.destroy()
         
-        # Add exception handler for main loop
         def excepthook(type, value, traceback):
             print(f"Unhandled exception: {value}")
             try:
-                if current_session_id:
-                    end_conversation_session(current_session_id)
-                if db_manager:
+                if 'db_manager' in globals():
                     db_manager.close()
             except:
                 pass
