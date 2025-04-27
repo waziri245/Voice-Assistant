@@ -471,7 +471,7 @@ def login(email, password):
         messagebox.showerror("Error", "Invalid password")
 
 def logged_in():
-    global current_state, assistant_stop_event
+    global current_state, assistant_stop_event, current
     
     # Stop any existing assistant
     if assistant_stop_event:
@@ -483,6 +483,8 @@ def logged_in():
     current_state = "logged_in"
     clear_window()
     
+    user_name = f"{current_user[1]} {current_user[2]}"
+
     db_manager.execute("SELECT voice_speed FROM users WHERE email=?", (current_user_email,))
     speed_setting = db_manager.fetchone()
     if speed_setting:
@@ -497,7 +499,7 @@ def logged_in():
     conversation_area.config(yscrollcommand=scrollbar.set)
     scrollbar.config(command=conversation_area.yview)
     
-    welcome_msg = f"Voice Assistant - Logged in as {current_user_email}\n\n"
+    welcome_msg = f"Voice Assistant - Logged in as {user_name}\n\n"
     conversation_area.insert(tk.END, welcome_msg)
     speak("Voice Assistant initialized. Say hello to start or exit to quit.")
     
@@ -512,22 +514,24 @@ def logged_in():
     tk.Button(window, text="History", command=show_history).pack()
     tk.Button(window, text="Settings", command=show_settings).pack()
     tk.Button(window, text="About Me", command=about_me).pack()
-
 def show_settings():
     clear_window()
     
     user_info = get_current_user_info()
     if user_info:
-        current_name, stored_hashed_password = user_info
+        current_name, last_name, stored_hashed_password = user_info
+        full_name = f"{current_name} {last_name}" if last_name else current_name
 
+        # Display user info
         tk.Label(window, text="Current Name:").pack()
-        name_label = tk.Label(window, text=current_name)
+        name_label = tk.Label(window, text=full_name)
         name_label.pack()
 
         tk.Label(window, text="Email:").pack()
         email_label = tk.Label(window, text=current_user_email)
         email_label.pack()
 
+        # Name change section
         def ask_for_password():
             password_window = tk.Toplevel(window)
             password_window.title("Verify Password")
@@ -552,15 +556,22 @@ def show_settings():
             change_window = tk.Toplevel(window)
             change_window.title("Change Name")
             
-            tk.Label(change_window, text="New name:").pack()
+            tk.Label(change_window, text="New first name:").pack()
             new_name_entry = tk.Entry(change_window)
+            new_name_entry.insert(0, current_name)
             new_name_entry.pack()
+
+            tk.Label(change_window, text="New last name:").pack()
+            new_last_entry = tk.Entry(change_window)
+            new_last_entry.insert(0, last_name if last_name else "")
+            new_last_entry.pack()
 
             def save_new_name():
                 new_name = new_name_entry.get()
+                new_last = new_last_entry.get()
                 if new_name:
-                    update_user_info(new_name)
-                    name_label.config(text=new_name)
+                    update_user_info(new_name, new_last)
+                    name_label.config(text=f"{new_name} {new_last}" if new_last else new_name)
                     messagebox.showinfo("Success", "Name updated!")
                     change_window.destroy()
 
@@ -568,6 +579,7 @@ def show_settings():
 
         tk.Button(window, text="✏️ Change Name", command=ask_for_password).pack(pady=10)
 
+        # Voice speed settings
         tk.Label(window, text="\nVoice Speed Settings", font="Arial 12 bold").pack()
 
         db_manager.execute("SELECT voice_speed FROM users WHERE email=?", (current_user_email,))
@@ -602,11 +614,15 @@ def show_settings():
         tk.Label(window, text="User not found.").pack()
 
 def get_current_user_info():
-    db_manager.execute("SELECT name, password FROM users WHERE email = ?", (current_user_email,))
-    return db_manager.fetchone()
+    print(f"Looking up user with email: {current_user_email}")
+    result = db_manager.execute("SELECT name, last_name, password FROM users WHERE email = ?", (current_user_email,))
+    user_info = result.fetchone()
+    print(f"Found user info: {user_info}")
+    return user_info
 
-def update_user_info(new_name):
-    db_manager.execute("UPDATE users SET name = ? WHERE email = ?", (new_name, current_user_email))
+def update_user_info(new_name, new_last_name):
+    db_manager.execute("UPDATE users SET name = ?, last_name = ? WHERE email = ?", 
+                      (new_name, new_last_name, current_user_email))
     db_manager.commit()
 
 def log_conversation(email, speaker, message):
