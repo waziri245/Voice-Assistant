@@ -9,6 +9,7 @@ import pyttsx3
 import threading
 import subprocess
 from datetime import datetime
+import time
 import os
 import sys
 from contextlib import contextmanager
@@ -58,45 +59,70 @@ class DatabaseManager:
         self.lock = threading.Lock()
         
     def connect(self):
-        """Create a new connection for each thread"""
-        if self.connection is None:
-            self.connection = sqlite3.connect(self.db_path, check_same_thread=False)
+        """Create a new database connection"""
+        try:
+            self.connection = sqlite3.connect(
+                self.db_path, 
+                check_same_thread=False,
+                timeout=30.0  # Increased timeout
+            )
             self.connection.execute("PRAGMA foreign_keys = ON")
-        return self.connection
-        
+            return True
+        except Exception as e:
+            print(f"Connection error: {e}")
+            return False
+            
+    def ensure_connection(self):
+        """Ensure we have a working connection"""
+        try:
+            if self.connection is None:
+                return self.connect()
+            # Test the connection
+            self.connection.execute("SELECT 1")
+            return True
+        except:
+            try:
+                self.close()
+                return self.connect()
+            except:
+                return False
+                
     def get_cursor(self):
+        """Get a new cursor from the current connection"""
         if not self.connection:
-            self.connect()
+            if not self.connect():
+                raise sqlite3.Error("No database connection")
         return self.connection.cursor()
-        
+            
     def execute(self, query, params=()):
+        if not self.ensure_connection():
+            raise sqlite3.Error("Could not establish database connection")
+            
         with self.lock:
             try:
-                if not self.connection:
-                    self.connect()
                 cursor = self.get_cursor()
                 cursor.execute(query, params)
                 self.connection.commit()
                 return cursor
+            except sqlite3.IntegrityError:
+                raise  # Re-raise unique constraint violations
             except sqlite3.Error as e:
                 print(f"Database error: {e}")
                 try:
-                    if self.connection:
-                        self.connection.rollback()
+                    self.connection.rollback()
                 except:
                     pass
-                # Close and reconnect
-                self.close()
-                self.connect()
-                # Retry once
+                # Reconnect and retry once for non-unique errors
                 try:
+                    self.close()
+                    self.connect()
                     cursor = self.get_cursor()
                     cursor.execute(query, params)
                     self.connection.commit()
                     return cursor
                 except Exception as e2:
                     print(f"Fatal database error: {e2}")
-                    return self.get_cursor()
+                    raise e2
 
     def fetchone(self):
         return self.get_cursor().fetchone()
@@ -105,44 +131,60 @@ class DatabaseManager:
         return self.get_cursor().fetchall()
 
     def commit(self):
-        self.connection.commit()
+        if self.connection:
+            self.connection.commit()
 
     @property
     def lastrowid(self):
-        return self.get_cursor().lastrowid
+        if self.connection:
+            return self.connection.cursor().lastrowid
+        return None
         
     def close(self):
         if self.connection:
             self.connection.close()
+            self.connection = None
 
 def initialize_database():
-    try:
-        # Create tables if they don't exist
-        db_manager.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT,
-                last_name TEXT,
-                email TEXT UNIQUE,
-                password TEXT,
-                voice_speed TEXT DEFAULT 'Normal'
-            )
-        """)
-        
-        db_manager.execute("""
-            CREATE TABLE IF NOT EXISTS conversations (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_email TEXT,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                speaker TEXT,
-                message TEXT,
-                FOREIGN KEY(user_email) REFERENCES users(email)
-            )
-        """)
-        db_manager.commit()
-    except Exception as e:
-        print(f"Error initializing database: {e}")
-        raise
+    max_retries = 3
+    retry_count = 0
+    
+    while retry_count < max_retries:
+        try:
+            if not db_manager.ensure_connection():
+                raise sqlite3.Error("Could not establish database connection")
+                
+            # Create tables if they don't exist
+            db_manager.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT,
+                    last_name TEXT,
+                    email TEXT UNIQUE,
+                    password TEXT,
+                    voice_speed TEXT DEFAULT 'Normal'
+                )
+            """)
+            
+            db_manager.execute("""
+                CREATE TABLE IF NOT EXISTS conversations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_email TEXT,
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    speaker TEXT,
+                    message TEXT,
+                    FOREIGN KEY(user_email) REFERENCES users(email)
+                )
+            """)
+            db_manager.commit()
+            return True
+            
+        except sqlite3.Error as e:
+            retry_count += 1
+            print(f"Database initialization attempt {retry_count} failed: {e}")
+            if retry_count >= max_retries:
+                raise
+            time.sleep(1)  # Wait before retrying
 
 # Global Variables
 current_user = None
@@ -356,9 +398,12 @@ def continue_without_account():
     conversation_area.config(yscrollcommand=scrollbar.set)
     scrollbar.config(command=conversation_area.yview)
     
-    welcome_msg = "Voice Assistant initialized. Say 'hello' to start or 'exit' to quit.\n\n"
+    wishMe()  # This calls speak() internally
+    
+    # Then after a delay, speak the welcome message
+    window.after(1500, lambda: speak("Voice Assistant initialized."))
+    welcome_msg = "Voice Assistant initialized.\n\n"
     conversation_area.insert(tk.END, welcome_msg)
-    speak("Voice Assistant initialized. Say hello to start or exit to quit.")
     
     listen_and_respond(conversation_area)
     
@@ -371,33 +416,69 @@ def continue_without_account():
 
 def sign_up():
     def create_account_if_valid():
-        name = name_entry.get()
-        last_name = last_entry.get()
-        email = email_entry.get()
-        password = password_entry.get()
-        confirm_password = confirm_entry.get()
+        # Get and clean input values
+        name = name_entry.get().strip()
+        last_name = last_entry.get().strip()
+        email = email_entry.get().strip()
+        password = password_entry.get().strip()
+        confirm_password = confirm_entry.get().strip()
 
+        def is_valid_name(name_str):
+            """Check if name contains only letters, spaces or hyphens"""
+            return all(c.isalpha() or c in (' ', '-') for c in name_str)
+
+        def capitalize_name(name_str):
+            """Capitalize first letter of each name part (including after hyphens)"""
+            return ' '.join(word.capitalize() for part in name_str.split() 
+                          for word in part.split('-')).replace('- ', '-')
+
+        # Validation checks
         if not all([name, last_name, email, password, confirm_password]):
             messagebox.showerror("Error", "Please fill in all fields")
             return
+            
+        if not (is_valid_name(name) and is_valid_name(last_name)):
+            messagebox.showerror("Error", "Name and Last name should contain only letters, spaces or hyphens")
+            return
+            
         if not re.match(r'^[\w\.-]+@[\w\.-]+\.\w+$', email):
             messagebox.showerror("Error", "Please enter a valid email address")
             return
+            
         if password != confirm_password:
             messagebox.showerror("Error", "Passwords do not match")
             return
 
-        db_manager.execute("SELECT * FROM users WHERE email = ?", (email,))
-        if db_manager.fetchone():
-            messagebox.showerror("Error", f"User with email '{email}' already exists.")
-            return
+        # Capitalize names before saving
+        capitalized_name = capitalize_name(name)
+        capitalized_last_name = capitalize_name(last_name)
 
-        hashed_password = ph.hash(password)
-        db_manager.execute("INSERT INTO users (name, last_name, email, password) VALUES (?, ?, ?, ?)", 
-                      (name, last_name, email, hashed_password))
-        db_manager.commit()
-        messagebox.showinfo("Success", "User account created successfully.")
-        setup_main_screen()
+        # Check if user exists
+        try:
+            # Check if user exists first
+            cursor = db_manager.execute("SELECT * FROM users WHERE email = ?", (email,))
+            if cursor.fetchone():
+                messagebox.showerror("Error", f"User with email '{email}' already exists.")
+                return
+
+            # Create account
+            hashed_password = ph.hash(password)
+            db_manager.execute("""
+                INSERT INTO users (name, last_name, email, password) 
+                VALUES (?, ?, ?, ?)
+                """, 
+                (capitalized_name, capitalized_last_name, email, hashed_password))
+            
+            messagebox.showinfo("Success", "User account created successfully.")
+            setup_main_screen()
+            
+        except sqlite3.IntegrityError:
+            messagebox.showerror("Error", f"User with email '{email}' already exists.")
+        except sqlite3.Error as e:
+            messagebox.showerror("Database Error", "Failed to create account. Please try again.")
+            print(f"Database error: {e}")
+        except Exception as e:
+            messagebox.showerror("Error", f"An unexpected error occurred: {str(e)}")
 
     clear_window()
     tk.Label(window, text="Name:").pack()
@@ -501,7 +582,12 @@ def logged_in():
     
     welcome_msg = f"Voice Assistant - Logged in as {user_name}\n\n"
     conversation_area.insert(tk.END, welcome_msg)
-    speak("Voice Assistant initialized. Say hello to start or exit to quit.")
+    
+    wishMe()  # This calls speak() internally
+    
+    # Then after a delay, speak the welcome message
+    window.after(1500, lambda: speak("Voice Assistant initialized."))
+    
     
     if 'assistant_stop_event' in globals():
         assistant_stop_event.set()
@@ -514,6 +600,7 @@ def logged_in():
     tk.Button(window, text="History", command=show_history).pack()
     tk.Button(window, text="Settings", command=show_settings).pack()
     tk.Button(window, text="About Me", command=about_me).pack()
+
 def show_settings():
     clear_window()
     
@@ -552,6 +639,13 @@ def show_settings():
 
             tk.Button(password_window, text="Verify", command=verify_password).pack()
 
+        def capitalize_name(name_str):
+            """Capitalize first letter of each name part (including after hyphens)"""
+            return ' '.join(
+                word.capitalize() for part in name_str.split() 
+                for word in part.split('-')
+            ).replace('- ', '-')
+
         def change_name_window():
             change_window = tk.Toplevel(window)
             change_window.title("Change Name")
@@ -567,13 +661,25 @@ def show_settings():
             new_last_entry.pack()
 
             def save_new_name():
-                new_name = new_name_entry.get()
-                new_last = new_last_entry.get()
-                if new_name:
-                    update_user_info(new_name, new_last)
-                    name_label.config(text=f"{new_name} {new_last}" if new_last else new_name)
-                    messagebox.showinfo("Success", "Name updated!")
+                # Get and clean input
+                new_name = new_name_entry.get().strip()
+                new_last = new_last_entry.get().strip()
+                
+                if not new_name:  # At least first name is required
+                    messagebox.showerror("Error", "First name cannot be empty")
+                    return
+                
+                # Capitalize both names
+                capitalized_name = capitalize_name(new_name)
+                capitalized_last = capitalize_name(new_last) if new_last else ""
+                
+                try:
+                    update_user_info(capitalized_name, capitalized_last)
+                    name_label.config(text=f"{capitalized_name} {capitalized_last}" if capitalized_last else capitalized_name)
+                    messagebox.showinfo("Success", "Name updated successfully!")
                     change_window.destroy()
+                except Exception as e:
+                    messagebox.showerror("Error", f"Failed to update name: {str(e)}")
 
             tk.Button(change_window, text="Save", command=save_new_name).pack()
 
@@ -694,6 +800,17 @@ def back_to_previous():
     else:
         setup_main_screen()
 
+def wishMe():
+    hour = datetime.now().hour 
+    if hour >= 0 and hour < 12:
+        speak("Good Morning Sir !")
+
+    elif hour >= 12 and hour < 18:
+        speak("Good Afternoon Sir !")
+
+    else:
+        speak("Good Evening Sir !")
+
 def log_out():
     global current_user, current_user_email, assistant_stop_event
     
@@ -708,9 +825,13 @@ def log_out():
 if __name__ == "__main__":
     try:
         db_manager = DatabaseManager('user.db')
-        initialize_database()
+        if not initialize_database():
+            messagebox.showerror("Error", "Could not initialize database")
+            sys.exit(1)
+            
         print("Database initialized successfully")
         
+        # Create main window
         window = tk.Tk()
         setup_main_screen()
         
