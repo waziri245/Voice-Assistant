@@ -8,11 +8,19 @@ from argon2.exceptions import VerifyMismatchError
 import pyttsx3
 import threading
 import subprocess
-from datetime import datetime
+from datetime import datetime, timedelta
 import time
 import os
 import sys
 from contextlib import contextmanager
+import webbrowser
+import pytz
+import holidays
+import wikipedia
+import requests
+import ctypes
+import platform
+
 
 class NullDevice:
     def write(self, s):
@@ -301,34 +309,142 @@ def listen_and_respond(conversation_area):
             response = ""
             command_lower = command.lower()
             
-            if any(greeting in command_lower for greeting in ["hello", "hi", "hey"]):
+            if any(greeting in command_lower for greeting in ["hello", "hi"]):
                 response = "Hello! How can I help you today?"
-            elif "time" in command_lower:
+            elif "current local time" in command_lower:
                 response = f"The current time is {datetime.now().strftime('%H:%M')}"
             elif "date" in command_lower:
                 response = f"Today's date is {datetime.now().strftime('%B %d, %Y')}"
+            elif "hey assistant" in command_lower or "bot" in command_lower or "can you hear me" in command_lower or "hey" in command_lower:
+                response = f"I am in your service"
+            elif any(word in command_lower for word in ['holiday', 'holidays']):
+                response = show_holidays(command_lower, conversation_area)
+            elif any(word in command.lower() for word in ['time in', 'time at', 'world time', 'time zones', 'what time is it in']):
+                response = show_world_time(command, conversation_area)
+                # Don't manually insert to conversation_area here - let show_world_time handle it
+                return response
             elif "open" in command_lower:
                 app = command_lower.replace("open", "").strip()
                 response = f"Opening {app}"
                 try:
-                    if "chrome" in app or "browser" in app:
+                    if "chrome" in app or "browser" in app or "web" in app or "google" in app or "google chrome" in app:
                         subprocess.Popen(["google-chrome"])
-                    elif "terminal" in app:
+                    elif "terminal" in app or "command line" in app:
                         subprocess.Popen(["gnome-terminal"])
-                    elif "file" in app or "explorer" in app:
+                    elif "file" in app or "explorer" in app or "folder" in app:
                         subprocess.Popen(["nautilus"])
+                    elif "code" in app or "editor" in app or "vs code" in app:
+                        subprocess.Popen(["code"])
+                    elif "spotify" in app or "music" in app:
+                        subprocess.Popen(["spotify"])
+                    elif "calculator" in app:
+                        subprocess.Popen(["gnome-calculator"])
+                    elif "settings" in app or "preferences" in app:
+                        subprocess.Popen(["gnome-control-center"])
+                    elif "email" in app or "mail" in app or "thunderbird" in app:
+                        subprocess.Popen(["thunderbird"])
+                    elif "calendar" in app:
+                        subprocess.Popen(["gnome-calendar"])
+                    elif "discord" in app:
+                        subprocess.Popen(["discord"])
+                    elif "zoom" in app or "meeting" in app:
+                        subprocess.Popen(["zoom"])
+                    elif "slack" in app:
+                        subprocess.Popen(["slack"])
+                    elif "libreoffice" in app or "writer" in app or "word" in app:
+                        subprocess.Popen(["libreoffice", "--writer"])  # Fixed: Split args
+                    elif "spreadsheet" in app or "excel" in app:
+                        subprocess.Popen(["libreoffice", "--calc"])  # Fixed: Split args
+                    elif "presentation" in app or "powerpoint" in app:
+                        subprocess.Popen(["libreoffice", "--impress"])  # Fixed: Split args
+                    elif "photos" in app or "gallery" in app:
+                        subprocess.Popen(["shotwell"])
+                    elif "camera" in app:
+                        subprocess.Popen(["cheese"])
+                    elif "vscode" in app or "visual studio code" in app:
+                        subprocess.Popen(["code"])
+                    elif "telegram" in app:
+                        subprocess.Popen(["telegram-desktop"])
+                    elif "whatsapp" in app:
+                        subprocess.Popen(["whatsapp-desktop"])  # Changed to a more common name
+                    elif "steam" in app or "games" in app:
+                        subprocess.Popen(["steam"])
+                    elif "youtube" in app or "you tube" in app:  # Fixed duplicate check
+                        webbrowser.open("https://www.youtube.com")  # Better: Use default browser
+                    elif "chatgpt" in app or "ai" in app:
+                        webbrowser.open("https://chat.openai.com")  # Fixed URL
                     else:
                         response = f"I'm not sure how to open {app}"
+                except FileNotFoundError:
+                    response = f"Sorry, it seems {app} is not installed."
                 except Exception as e:
                     response = f"Sorry, I couldn't open {app}. Error: {str(e)}"
-            elif "search" in command_lower:
-                query = command_lower.replace("search", "").strip()
+            elif "search google" in command_lower or "search web" in command_lower or "search chrome" in command_lower or "search google chrome" in command_lower:
+                query = command_lower.replace("search google", "")\
+                        .replace("search web", "")\
+                        .replace("search chrome", "")\
+                        .replace("search google chrome", "")\
+                        .strip()
                 if query:
                     response = f"Searching the web for {query}"
                     try:
                         subprocess.Popen(["google-chrome", f"https://www.google.com/search?q={query}"])
                     except:
                         response = "I couldn't perform the search. Please try again."
+            
+            elif any(phrase in command_lower for phrase in ["wikipedia", "what is", "who is", "tell me about"]):
+                # Extract query
+                query = re.sub(
+                    r'(search wikipedia for|wikipedia|what is|who is|tell me about)\s*', 
+                    '', 
+                    command_lower
+                ).strip()
+                
+                # First show user message
+                if conversation_area and conversation_area.winfo_exists():
+                    conversation_area.insert(tk.END, f"USER: {command}\n")
+                    conversation_area.see(tk.END)
+                
+                if query:
+                    response = search_wikipedia(query, conversation_area, display_only=True)
+                    # Then show bot response
+                    if conversation_area and conversation_area.winfo_exists():
+                        conversation_area.insert(tk.END, f"BOT: {response}\n\n")
+                        conversation_area.see(tk.END)
+                else:
+                    response = "What would you like me to search on Wikipedia?"
+                
+                return response
+
+
+            elif any(phrase in command_lower for phrase in [
+                "what is the meaning of",
+                "define",
+                "what does mean",
+                "explain the word"
+            ]):
+                response = explain_word(command, conversation_area)
+
+
+            # System control commands
+            elif "lock computer" in command_lower or "lock pc" in command_lower:
+                response = lock_computer()
+            elif "restart computer" in command_lower or "reboot computer" in command_lower:
+                if "confirm" in command_lower:
+                    response = restart_computer(confirm=False)
+                else:
+                    response = restart_computer()
+            elif "shutdown computer" in command_lower or "turn off computer" in command_lower:
+                if "confirm" in command_lower:
+                    response = shutdown_computer(confirm=False)
+                else:
+                    response = shutdown_computer()
+            
+    
+
+
+
+
             elif "exit" in command_lower or "quit" in command_lower or "stop" in command_lower:
                 response = "Goodbye! Have a nice day."
                 window.after(0, lambda: update_gui(f"BOT: {response}\n"))
@@ -810,6 +926,303 @@ def wishMe():
 
     else:
         speak("Good Evening Sir !")
+
+# ===== SYSTEM CONTROL FUNCTIONS =====
+def lock_computer():
+    try:
+        if platform.system() == "Windows":
+            ctypes.windll.user32.LockWorkStation()
+            return "Computer locked successfully"
+        elif platform.system() == "Linux":
+            # Try all common Linux locking methods with availability checks
+            methods = [
+                ("loginctl lock-session", ["loginctl"]),  # Systemd
+                ("xdg-screensaver lock", ["xdg-screensaver"]),  # XDG standard
+                ("gnome-screensaver-command -l", ["gnome-screensaver-command"]),  # GNOME
+                ("i3lock", ["i3lock"]),  # i3 window manager
+                ("dm-tool lock", ["dm-tool"]),  # LightDM (won't fail if not available)
+                ("qdbus org.freedesktop.ScreenSaver /ScreenSaver Lock", ["qdbus"])  # KDE
+            ]
+            
+            for cmd, deps in methods:
+                try:
+                    # Check if all dependencies exist
+                    if all(subprocess.call(["which", dep], stdout=subprocess.PIPE, stderr=subprocess.PIPE) == 0 for dep in deps):
+                        subprocess.run(cmd.split(), check=True)
+                        return "Computer locked successfully"
+                except:
+                    continue
+            
+            # Final fallback - try to detect desktop environment
+            desktop = os.environ.get("XDG_CURRENT_DESKTOP", "").lower()
+            if "gnome" in desktop or "ubuntu" in desktop:
+                os.system("dbus-send --type=method_call --dest=org.gnome.ScreenSaver /org/gnome/ScreenSaver org.gnome.ScreenSaver.Lock")
+            elif "kde" in desktop:
+                os.system("qdbus org.freedesktop.ScreenSaver /ScreenSaver Lock")
+            else:
+                os.system("i3lock")  # Try i3lock as last resort
+            
+            return "Computer locked successfully"
+            
+    except Exception as e:
+        return f"Failed to lock computer: {str(e)}"
+
+def restart_computer(confirm=True):
+    if confirm:
+        return "Please confirm you want to restart the computer"
+    try:
+        if platform.system() == "Windows":
+            os.system("shutdown /r /t 1")
+        elif platform.system() == "Linux":
+            os.system("systemctl reboot")
+        return "Restarting computer now..."
+    except Exception as e:
+        return f"Failed to restart: {str(e)}"
+
+def shutdown_computer(confirm=True):
+    if confirm:
+        return "Please confirm you want to shutdown the computer"
+    try:
+        if platform.system() == "Windows":
+            os.system("shutdown /s /t 1")
+        elif platform.system() == "Linux":
+            os.system("systemctl poweroff")
+        return "Shutting down computer now..."
+    except Exception as e:
+        return f"Failed to shutdown: {str(e)}"
+
+
+
+def simplify_word_meaning(word):
+    """Get simple dictionary definition using DictionaryAPI"""
+    try:
+        response = requests.get(f"https://api.dictionaryapi.dev/api/v2/entries/en/{word}")
+        data = response.json()
+        
+        if isinstance(data, dict) and data.get("title") == "No Definitions Found":
+            return f"Couldn't find a definition for '{word}'"
+        
+        # Extract the first entry
+        entry = data[0]
+        word = entry["word"]
+        meanings = entry["meanings"]
+        
+        simplified = [f"📖 {word.capitalize()} means:"]
+        
+        # Limit to 3 meanings max
+        for meaning in meanings[:3]:
+            part_of_speech = meaning["partOfSpeech"]
+            definitions = meaning["definitions"]
+            
+            simplified.append(f"• As a {part_of_speech}:")
+            # Take first 2 definitions max
+            for definition in definitions[:2]:
+                simplified.append(f"  - {definition['definition']}")
+                if "example" in definition:
+                    simplified.append(f"    Example: '{definition['example']}'")
+        
+        return "\n".join(simplified)
+    
+    except Exception as e:
+        return f"Sorry, I couldn't look up '{word}'. Try another word."
+
+def explain_word(command, conversation_area=None):
+    """Handle word explanation requests"""
+    # Extract the word to look up
+    triggers = [
+        "what is the meaning of",
+        "define",
+        "what does mean",
+        "explain the word"
+    ]
+    
+    word = command.lower()
+    for trigger in triggers:
+        word = word.replace(trigger, "")
+    word = word.strip()
+    
+    if not word:
+        return "Please specify a word you'd like me to explain."
+    
+    explanation = simplify_word_meaning(word)
+    
+    # Update GUI if available
+    if conversation_area and conversation_area.winfo_exists():
+        conversation_area.insert(tk.END, f"USER: {command}\n")
+        conversation_area.insert(tk.END, f"BOT: {explanation}\n\n")
+        conversation_area.see(tk.END)
+    
+    return explanation
+
+
+def search_wikipedia(query, conversation_area=None, display_only=False):
+    """Search Wikipedia and return a summary"""
+    try:
+        wikipedia.set_lang("en")
+        summary = wikipedia.summary(query, sentences=3)
+        response = f"📚 Wikipedia summary for '{query}':\n\n{summary}"
+        
+        if not display_only and conversation_area and conversation_area.winfo_exists():
+            conversation_area.insert(tk.END, f"BOT: {response}\n\n")
+            conversation_area.see(tk.END)
+        
+        return response
+    
+    except wikipedia.exceptions.DisambiguationError:
+        return "Multiple options found. Please be more specific."
+    except wikipedia.exceptions.PageError:
+        return "No Wikipedia page found. Try a different search."
+    except Exception as e:
+        return f"Search error: {str(e)}"
+
+def get_holidays_by_month(month=None, year=2025):
+    """Get global holidays for a specific month"""
+    countries = ['US', 'GB', 'CA', 'AU', 'IN', 'JP', 'DE', 'FR', 'IT', 'BR', 'ZA', 'MX']
+    holiday_dict = {}
+    
+    for country in countries:
+        try:
+            for date, name in holidays.CountryHoliday(country, years=year).items():
+                if month is None or date.month == month:
+                    if name not in holiday_dict:  # Avoid duplicates
+                        holiday_dict[name] = date.strftime('%b %d')
+        except:
+            continue
+    
+    return holiday_dict
+
+def show_holidays(command, conversation_area=None):
+    """Handle all holiday-related commands"""
+    month_map = {
+        'january': 1, 'february': 2, 'march': 3, 'april': 4,
+        'may': 5, 'june': 6, 'july': 7, 'august': 8,
+        'september': 9, 'october': 10, 'november': 11, 'december': 12
+    }
+    
+    # Determine if asking for specific month
+    month_num = None
+    for month_name, num in month_map.items():
+        if month_name in command.lower():
+            month_num = num
+            month_display = month_name.capitalize()
+            break
+    
+    holidays_data = get_holidays_by_month(month_num)
+    
+    if not holidays_data:
+        response = "No holidays found for this period."
+    else:
+        if month_num:
+            response = f"📅 Holidays in {month_display} 2025:\n\n"
+        else:
+            response = "🗓️ Upcoming Global Holidays:\n\n"
+        
+        for name, date in sorted(holidays_data.items(), key=lambda x: x[1]):
+            response += f"• {date}: {name}\n"
+    
+    # Display in conversation area
+    if conversation_area:
+        conversation_area.insert(tk.END, "\n" + response + "\n")
+        conversation_area.see(tk.END)
+    
+    return response
+
+
+def get_world_time(location=None):
+    """Get times for specific location or all major cities"""
+    timezones = {
+        # Americas
+        'New York': 'America/New_York',
+        'Los Angeles': 'America/Los_Angeles',
+        'Toronto': 'America/Toronto',
+        'Chicago': 'America/Chicago',
+        # Europe
+        'London': 'Europe/London',
+        'Paris': 'Europe/Paris',
+        'Berlin': 'Europe/Berlin',
+        'Rome': 'Europe/Rome',
+        # Asia
+        'Tokyo': 'Asia/Tokyo',
+        'Delhi': 'Asia/Kolkata',
+        'Beijing': 'Asia/Shanghai',
+        'Dubai': 'Asia/Dubai',
+        # Australia
+        'Sydney': 'Australia/Sydney',
+        'Melbourne': 'Australia/Melbourne',
+        # Add more as needed
+    }
+    
+    # Handle country/region requests
+    region_map = {
+        'usa': ['New York', 'Los Angeles', 'Chicago'],
+        'canada': ['Toronto'],
+        'uk': ['London'],
+        'europe': ['London', 'Paris', 'Berlin', 'Rome'],
+        'asia': ['Tokyo', 'Delhi', 'Beijing', 'Dubai'],
+        'australia': ['Sydney', 'Melbourne']
+    }
+    
+    current_time = datetime.now()
+    results = {}
+    
+    # Check if asking for specific region
+    if location:
+        location = location.lower()
+        if location in region_map:
+            cities = region_map[location]
+            for city in cities:
+                tz = timezones[city]
+                city_time = current_time.astimezone(pytz.timezone(tz))
+                results[city] = city_time.strftime('%I:%M %p (%Z)')
+        elif location.title() in timezones:
+            city = location.title()
+            tz = timezones[city]
+            city_time = current_time.astimezone(pytz.timezone(tz))
+            results[city] = city_time.strftime('%I:%M %p (%Z)')
+    
+    # Default to all major cities if no specific location
+    if not results and not location:
+        for city, tz in timezones.items():
+            city_time = current_time.astimezone(pytz.timezone(tz))
+            results[city] = city_time.strftime('%I:%M %p (%Z)')
+    
+    return results
+
+def show_world_time(command, conversation_area=None):
+    """Handle all time-related commands"""
+    try:
+        # Extract location from command
+        location = None
+        time_keywords = ['time in', 'time at', 'time for', 'what time is it in']
+        
+        for keyword in time_keywords:
+            if keyword in command.lower():
+                location = command.lower().split(keyword)[-1].strip()
+                break
+        
+        times = get_world_time(location)
+        
+        if not times:
+            response = f"I couldn't find time information for {location}"
+        else:
+            if location:
+                response = f"⏰ Current time in {location.title()}:\n\n"
+            else:
+                response = "⏰ Current World Times:\n\n"
+            
+            for city, time in times.items():
+                response += f"• {city}: {time}\n"
+        
+        # Safely update conversation area if it exists
+        if conversation_area and conversation_area.winfo_exists():
+            conversation_area.insert(tk.END, f"BOT: {response}\n\n")
+            conversation_area.see(tk.END)
+        
+        return response
+    
+    except Exception as e:
+        print(f"Error in show_world_time: {e}")
+        return "Sorry, I couldn't get the time information."
 
 def log_out():
     global current_user, current_user_email, assistant_stop_event
