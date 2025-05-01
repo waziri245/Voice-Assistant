@@ -8,7 +8,7 @@ from argon2.exceptions import VerifyMismatchError
 import pyttsx3
 import threading
 import subprocess
-from datetime import datetime, timedelta
+from datetime import datetime
 import time
 import os
 import sys
@@ -20,6 +20,7 @@ import wikipedia
 import requests
 import ctypes
 import platform
+import time
 
 
 class NullDevice:
@@ -303,7 +304,7 @@ def listen_and_respond(conversation_area):
         with processing_lock:
             command = command.strip()
             print(f"Processing command: {command}")
-
+            window.after(0, lambda: update_gui(f"USER: {command}\n"))
             log_conversation(current_user_email, "USER", command)
             
             response = ""
@@ -440,10 +441,22 @@ def listen_and_respond(conversation_area):
                 else:
                     response = shutdown_computer()
             
-    
 
 
+            elif "weather" in command_lower or "forecast" in command_lower:
+                # Extract city name
+                city = command_lower.replace("weather", "").replace("forecast", "").replace("in", "").strip()
+                if city:
+                    response = show_weather(city, conversation_area)
+                else:
+                    response = "Please specify a city (e.g., 'weather in London')"
 
+            
+            elif "news" in command_lower or "headlines" in command_lower:
+                response = get_news_summaries(conversation_area)
+
+            elif any(word in command_lower for word in ["convert", "change", "to"]):
+                response = process_conversion_command(command, conversation_area)
 
             elif "exit" in command_lower or "quit" in command_lower or "stop" in command_lower:
                 response = "Goodbye! Have a nice day."
@@ -926,6 +939,232 @@ def wishMe():
 
     else:
         speak("Good Evening Sir !")
+
+def convert_units(value, from_unit, to_unit):
+    """Handle all supported unit conversions"""
+    # Normalize units
+    from_unit = from_unit.lower()
+    to_unit = to_unit.lower()
+    
+    try:
+        value = float(value)
+    except ValueError:
+        return "Invalid number"
+    
+    # Length conversions
+    length_units = {
+        'mm': 0.001,
+        'cm': 0.01,
+        'm': 1.0,
+        'km': 1000.0,
+        'in': 0.0254,
+        'ft': 0.3048,
+        'yd': 0.9144,
+        'mi': 1609.34
+    }
+    
+    # Weight conversions
+    weight_units = {
+        'mg': 0.001,
+        'g': 1.0,
+        'kg': 1000.0,
+        'oz': 28.3495,
+        'lb': 453.592,
+        'ton': 907185
+    }
+    
+    # Volume conversions
+    volume_units = {
+        'ml': 0.001,
+        'l': 1.0,
+        'gal': 3.78541,
+        'qt': 0.946353,
+        'pt': 0.473176,
+        'cup': 0.24,
+        'fl oz': 0.0295735
+    }
+    
+    # Temperature conversions
+    if from_unit in ['c', 'f'] and to_unit in ['c', 'f']:
+        if from_unit == 'c' and to_unit == 'f':
+            return value * 9/5 + 32
+        elif from_unit == 'f' and to_unit == 'c':
+            return (value - 32) * 5/9
+        else:
+            return value
+    
+    # Check which conversion type we're doing
+    if from_unit in length_units and to_unit in length_units:
+        # Convert to meters first, then to target unit
+        meters = value * length_units[from_unit]
+        return meters / length_units[to_unit]
+    elif from_unit in weight_units and to_unit in weight_units:
+        # Convert to grams first
+        grams = value * weight_units[from_unit]
+        return grams / weight_units[to_unit]
+    elif from_unit in volume_units and to_unit in volume_units:
+        # Convert to liters first
+        liters = value * volume_units[from_unit]
+        return liters / volume_units[to_unit]
+    else:
+        return "Unsupported unit conversion"
+
+def process_conversion_command(command, conversation_area=None):
+    """Handle unit conversion voice commands"""
+    try:
+        # Improved pattern to catch more variations
+        pattern = r'(?:convert|change)\s+(\d+\.?\d*)\s+(\w+)\s+(?:to|in)\s+(\w+)'
+        match = re.search(pattern, command.lower())
+        
+        if not match:
+            return "Please specify units to convert from and to (e.g., 'convert 5 kilometers to meters')"
+        
+        value, from_unit, to_unit = match.groups()
+        value = float(value)
+        
+        # Common unit aliases - expanded list
+        unit_aliases = {
+            # Length
+            'kilometer': 'km', 'kilometers': 'km', 'km': 'km',
+            'meter': 'm', 'meters': 'm', 'm': 'm',
+            'centimeter': 'cm', 'centimeters': 'cm', 'cm': 'cm',
+            'millimeter': 'mm', 'millimeters': 'mm', 'mm': 'mm',
+            # Weight
+            'kilogram': 'kg', 'kilograms': 'kg', 'kg': 'kg',
+            'gram': 'g', 'grams': 'g', 'g': 'g',
+            'milligram': 'mg', 'milligrams': 'mg', 'mg': 'mg',
+            # Add more units as needed
+        }
+        
+        from_unit = unit_aliases.get(from_unit, from_unit)
+        to_unit = unit_aliases.get(to_unit, to_unit)
+        
+        result = convert_units(value, from_unit, to_unit)
+        
+        if isinstance(result, str):
+            return result  # Error message
+        
+        response = f"{value} {from_unit} = {result:.2f} {to_unit}"
+        
+        if conversation_area:
+            conversation_area.insert(tk.END, f"BOT: {response}\n\n")
+            conversation_area.see(tk.END)
+        
+        return response
+    
+    except Exception as e:
+        return f"Conversion failed: {str(e)}"
+    
+def get_news_summaries(conversation_area=None):
+    """Fetch top 5 global news headlines with summaries"""
+    try:
+        API_KEY = "your_newsapi_key"  # Replace with your actual key
+        url = f"https://newsapi.org/v2/top-headlines?country=us&pageSize=5&apiKey={API_KEY}"
+        
+        response = requests.get(url)
+        data = response.json()
+        
+        if data['status'] != 'ok' or not data['articles']:
+            return "Couldn't fetch news at the moment"
+        
+        news_items = []
+        for article in data['articles'][:5]:  # Get top 5
+            title = article['title']
+            description = article['description'] or "No description available"
+            source = article['source']['name']
+            
+            # Create 3-line summary
+            summary = (
+                f"📰 {title}\n"
+                f"   - {description.split('.')[0]}\n"
+                f"   - Source: {source}\n"
+            )
+            news_items.append(summary)
+        
+        # Format response
+        response = "🌍 Top Global News Headlines:\n"
+        full_report = response + "\n".join(news_items)
+        
+        # Update GUI
+        if conversation_area:
+            conversation_area.insert(tk.END, f"BOT: {response}\n")
+            conversation_area.insert(tk.END, full_report + "\n\n")
+            conversation_area.see(tk.END)
+        
+        return response  # Only speak the intro
+    
+    except Exception as e:
+        print(f"News error: {e}")
+        return "Failed to fetch news updates"
+    
+def get_weather(city_name):
+    """Get current weather and forecast for a city"""
+    try:
+        # Use OpenWeatherMap API (free tier)
+        API_KEY = "your_api_key"  # Get from https://openweathermap.org/
+        base_url = "http://api.openweathermap.org/data/2.5/weather"
+        forecast_url = "http://api.openweathermap.org/data/2.5/forecast"
+        
+        # Get current weather
+        current_params = {
+            'q': city_name,
+            'units': 'metric',
+            'appid': API_KEY
+        }
+        current_response = requests.get(base_url, params=current_params).json()
+        
+        # Get forecast
+        forecast_params = {
+            'q': city_name,
+            'units': 'metric',
+            'appid': API_KEY,
+            'cnt': 5  # Next 5 time periods (about 24 hours)
+        }
+        forecast_response = requests.get(forecast_url, params=forecast_params).json()
+        
+        return {
+            'current': current_response,
+            'forecast': forecast_response
+        }
+    except Exception as e:
+        print(f"Weather API error: {e}")
+        return None
+
+def show_weather(city_name, conversation_area=None):
+    """Process weather command and display results"""
+    try:
+        weather_data = get_weather(city_name)
+        if not weather_data:
+            return f"Couldn't get weather data for {city_name}"
+        
+        current = weather_data['current']
+        forecast = weather_data['forecast']
+        
+        # Current conditions to speak
+        temp = current['main']['temp']
+        condition = current['weather'][0]['description']
+        date = datetime.fromtimestamp(current['dt']).strftime('%A, %B %d')
+        
+        spoken_response = f"Current weather in {city_name}: {date}, {temp}°C, {condition}"
+        
+        # Forecast to display in GUI
+        forecast_text = f"\n🌦️ {city_name} Weather Forecast:\n"
+        for entry in forecast['list']:
+            time = datetime.fromtimestamp(entry['dt']).strftime('%a %H:%M')
+            temp = entry['main']['temp']
+            condition = entry['weather'][0]['description']
+            forecast_text += f"• {time}: {temp}°C, {condition}\n"
+        
+        # Update GUI
+        if conversation_area:
+            conversation_area.insert(tk.END, f"BOT: {spoken_response}\n")
+            conversation_area.insert(tk.END, forecast_text + "\n")
+            conversation_area.see(tk.END)
+        
+        return spoken_response
+    
+    except Exception as e:
+        return f"Error getting weather: {str(e)}"
 
 # ===== SYSTEM CONTROL FUNCTIONS =====
 def lock_computer():
