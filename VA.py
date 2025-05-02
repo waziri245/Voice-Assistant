@@ -920,8 +920,144 @@ def show_history():
 
 def about_me():
     clear_window()
-    tk.Label(window, text="About this Voice Assistant Project").pack()
-    tk.Button(window, text="Back", command=back_to_previous).pack()
+    
+    # Main frame with scrollbar
+    main_frame = tk.Frame(window)
+    main_frame.pack(fill=tk.BOTH, expand=True)
+    
+    # Create canvas and scrollbar
+    canvas = tk.Canvas(main_frame)
+    scrollbar = tk.Scrollbar(main_frame, orient="vertical", command=canvas.yview)
+    scrollable_frame = tk.Frame(canvas)
+    
+    # Configure canvas scrolling
+    scrollable_frame.bind(
+        "<Configure>",
+        lambda e: canvas.configure(
+            scrollregion=canvas.bbox("all")
+        )
+    )
+    canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+    canvas.configure(yscrollcommand=scrollbar.set)
+    
+    # Pack canvas and scrollbar
+    canvas.pack(side="left", fill="both", expand=True)
+    scrollbar.pack(side="right", fill="y")
+    
+    # Project description
+    tk.Label(scrollable_frame, 
+             text="About This Voice Assistant Project",
+             font=("Arial", 16, "bold")).pack(pady=10)
+    
+    description = """This is an advanced Voice Assistant program developed with Python that combines:
+    
+• Natural language voice commands
+• Secure user authentication
+• Conversation history tracking
+• Smart home/device control
+• Information lookup (weather, time, conversions)
+• Alarm and timer functionality
+• System utilities (locking, shutdown)
+
+The assistant features:
+✓ Voice recognition
+✓ Text-to-speech responses
+✓ Cross-platform compatibility
+✓ Database-backed user accounts
+✓ Multi-threaded operation
+"""
+    tk.Label(scrollable_frame, 
+             text=description,
+             justify=tk.LEFT).pack(pady=10, padx=20)
+    
+    # Creator information
+    tk.Label(scrollable_frame, 
+             text="Creator Information",
+             font=("Arial", 14, "bold")).pack(pady=(20,5))
+    
+    creator_info = """Developed by Atal Abdullah Waziri
+Co-founder of Stellar Organization
+
+This project represents my work in Python programming, SQL,
+voice technology, and assistant development."""
+    tk.Label(scrollable_frame, 
+             text=creator_info,
+             justify=tk.LEFT).pack(pady=5, padx=20)
+    
+    # Contact information
+    tk.Label(scrollable_frame, 
+             text="📫 Contact Information",
+             font=("Arial", 14, "bold")).pack(pady=(20,5))
+    
+    # Email label
+    email_frame = tk.Frame(scrollable_frame)
+    email_frame.pack(anchor="w", padx=20)
+    tk.Label(email_frame, text="Email: ").pack(side="left")
+    email_link = tk.Label(email_frame, text="atalwaziri9@gmail.com", fg="blue", cursor="hand2")
+    email_link.pack(side="left")
+    email_link.bind("<Button-1>", lambda e: webbrowser.open("mailto:atalwaziri9@gmail.com"))
+    
+    # Instagram label
+    insta_frame = tk.Frame(scrollable_frame)
+    insta_frame.pack(anchor="w", padx=20)
+    tk.Label(insta_frame, text="Instagram: ").pack(side="left")
+    insta_link = tk.Label(insta_frame, text="https://www.instagram.com/atal_waziri/", fg="blue", cursor="hand2")
+    insta_link.pack(side="left")
+    insta_link.bind("<Button-1>", lambda e: webbrowser.open("https://www.instagram.com/atal_waziri/"))
+    
+    # Stellar Organization links
+    tk.Label(scrollable_frame, 
+             text="🌐 Stellar Organization Links",
+             font=("Arial", 14, "bold")).pack(pady=(20,5))
+    
+    # Website
+    website_frame = tk.Frame(scrollable_frame)
+    website_frame.pack(anchor="w", padx=20)
+    tk.Label(website_frame, text="Website: ").pack(side="left")
+    website_link = tk.Label(website_frame, text="https://stellarorganization.mystrikingly.com/", fg="blue", cursor="hand2")
+    website_link.pack(side="left")
+    website_link.bind("<Button-1>", lambda e: webbrowser.open("https://stellarorganization.mystrikingly.com/"))
+    
+    # YouTube
+    yt_frame = tk.Frame(scrollable_frame)
+    yt_frame.pack(anchor="w", padx=20)
+    tk.Label(yt_frame, text="YouTube: ").pack(side="left")
+    yt_link = tk.Label(yt_frame, text="https://youtube.com/@Stellar_1Tech", fg="blue", cursor="hand2")
+    yt_link.pack(side="left")
+    yt_link.bind("<Button-1>", lambda e: webbrowser.open("https://youtube.com/@Stellar_1Tech"))
+    
+    # Instagram
+    stellar_insta_frame = tk.Frame(scrollable_frame)
+    stellar_insta_frame.pack(anchor="w", padx=20)
+    tk.Label(stellar_insta_frame, text="Instagram: ").pack(side="left")
+    stellar_insta_link = tk.Label(stellar_insta_frame, text="https://www.instagram.com/stellar_1training", fg="blue", cursor="hand2")
+    stellar_insta_link.pack(side="left")
+    stellar_insta_link.bind("<Button-1>", lambda e: webbrowser.open("https://www.instagram.com/stellar_1training"))
+    
+    # WhatsApp
+    wa_frame = tk.Frame(scrollable_frame)
+    wa_frame.pack(anchor="w", padx=20)
+    tk.Label(wa_frame, text="WhatsApp Community: ").pack(side="left")
+    wa_link = tk.Label(wa_frame, text="https://chat.whatsapp.com/H47fnJwZfeVG8ccISZbgqp", fg="blue", cursor="hand2")
+    wa_link.pack(side="left")
+    wa_link.bind("<Button-1>", lambda e: webbrowser.open("https://chat.whatsapp.com/H47fnJwZfeVG8ccISZbgqp"))
+    
+    # Blog link
+    tk.Label(scrollable_frame, 
+             text="✍️ Blog",
+             font=("Arial", 14, "bold")).pack(pady=(20,5))
+    
+    blog_frame = tk.Frame(scrollable_frame)
+    blog_frame.pack(anchor="w", padx=20)
+    blog_link = tk.Label(blog_frame, text="https://atalcodeblog.wordpress.com", fg="blue", cursor="hand2")
+    blog_link.pack(side="left")
+    blog_link.bind("<Button-1>", lambda e: webbrowser.open("https://atalcodeblog.wordpress.com"))
+    
+    # Back button at bottom
+    tk.Button(scrollable_frame, 
+              text="🔙 Back", 
+              command=back_to_previous,
+              padx=20).pack(pady=20)
 
 def back_to_previous():
     if current_state == "logged_in":
