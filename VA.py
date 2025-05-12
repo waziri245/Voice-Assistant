@@ -195,6 +195,73 @@ def initialize_database():
                 raise
             time.sleep(1)  # Wait before retrying
 
+class DarkButton(tk.Button):
+    def __init__(self, master=None, **kwargs):
+        super().__init__(master, **kwargs)
+        self.config(
+            bg=DARK_THEME['button_bg'],
+            fg=DARK_THEME['fg'],
+            activebackground=DARK_THEME['button_active'],
+            activeforeground=DARK_THEME['fg'],
+            relief=tk.FLAT,
+            padx=10,
+            pady=5,
+            borderwidth=0,
+            highlightthickness=0
+        )
+        self.bind("<Enter>", lambda e: self.config(bg=DARK_THEME['highlight']))
+        self.bind("<Leave>", lambda e: self.config(bg=DARK_THEME['button_bg']))
+
+class DarkEntry(tk.Entry):
+    def __init__(self, master=None, **kwargs):
+        super().__init__(master, **kwargs)
+        self.config(
+            bg=DARK_THEME['entry_bg'],
+            fg=DARK_THEME['entry_fg'],
+            insertbackground=DARK_THEME['fg'],
+            relief=tk.FLAT,
+            borderwidth=0,
+            highlightthickness=1,
+            highlightcolor=DARK_THEME['accent'],
+            highlightbackground=DARK_THEME['bg']
+        )
+
+class DarkLabel(tk.Label):
+    def __init__(self, master=None, **kwargs):
+        super().__init__(master, **kwargs)
+        self.config(
+            bg=DARK_THEME['bg'],
+            fg=DARK_THEME['fg'],
+            padx=5,
+            pady=5
+        )
+
+class DarkText(tk.Text):
+    def __init__(self, master=None, **kwargs):
+        super().__init__(master, **kwargs)
+        self.config(
+            bg=DARK_THEME['text_bg'],
+            fg=DARK_THEME['text_fg'],
+            insertbackground=DARK_THEME['fg'],
+            relief=tk.FLAT,
+            borderwidth=0,
+            padx=10,
+            pady=10,
+            wrap=tk.WORD,
+            highlightthickness=0
+        )
+
+class DarkScrollbar(tk.Scrollbar):
+    def __init__(self, master=None, **kwargs):
+        super().__init__(master, **kwargs)
+        self.config(
+            bg=DARK_THEME['bg'],
+            activebackground=DARK_THEME['highlight'],
+            troughcolor=DARK_THEME['bg'],
+            relief=tk.FLAT
+        )
+
+    
 # Global Variables
 current_user = None
 window = None
@@ -210,6 +277,52 @@ current_rate = engine.getProperty('rate')
 
 # Connect to the SQLite database
 db_manager = DatabaseManager('user.db')
+
+# Add this near the top of your code with other constants
+DARK_THEME = {
+    'bg': '#121212',  # Dark background
+    'fg': '#e0e0e0',  # Light text
+    'accent': '#bb86fc',  # Purple accent
+    'secondary': '#03dac6',  # Teal secondary
+    'highlight': '#3700b3',  # Dark purple highlight
+    'entry_bg': '#1e1e1e',  # Dark entry fields
+    'entry_fg': '#ffffff',  # White text in entries
+    'button_bg': '#1f1f1f',  # Button background
+    'button_active': '#3700b3',  # Button when pressed
+    'text_bg': '#1e1e1e',  # Text widget background
+    'text_fg': '#ffffff',  # Text widget foreground
+    'scrollbar': '#424242'  # Scrollbar color
+}
+
+def configure_window():
+    """Configure window with dark theme"""
+    global window
+    
+    # Get screen dimensions
+    screen_width = window.winfo_screenwidth()
+    screen_height = window.winfo_screenheight()
+    
+    # Set window to screen dimensions (fullscreen)
+    window.geometry(f"{screen_width}x{screen_height}+0+0")
+    
+    # Set dark theme attributes
+    window.configure(bg=DARK_THEME['bg'])
+    window.option_add('*background', DARK_THEME['bg'])
+    window.option_add('*foreground', DARK_THEME['fg'])
+    window.option_add('*Font', 'Arial 10')
+    
+    # Try to maximize (works on Windows/macOS)
+    try:
+        window.state('zoomed')
+    except tk.TclError:
+        try:
+            # Linux fallback - try different methods
+            window.attributes('-zoomed', True)
+        except:
+            pass
+    
+    # Ensure window decorations remain visible
+    window.attributes('-fullscreen', False)
 
 def speak(text):
     """Thread-safe text-to-speech"""
@@ -501,12 +614,57 @@ def setup_main_screen():
     clear_window()
     global window, current_state
     current_state = "main"
-    window.title("Voice Assistant")
+    configure_window()
 
-    tk.Button(window, text="Continue without account", command=continue_without_account).pack()
-    tk.Button(window, text="Sign In", command=sign_in).pack()
-    tk.Button(window, text="Sign Up", command=sign_up).pack()
-    tk.Button(window, text="About Me", command=about_me).pack()
+    window.title("Voice Assistant - Main Menu")
+
+    # Main container frame
+    main_frame = tk.Frame(window, bg=DARK_THEME['bg'])
+    main_frame.pack(expand=True, fill=tk.BOTH, padx=50, pady=50)
+
+    # Title label
+    DarkLabel(main_frame, 
+             text="VOICE ASSISTANT", 
+             font=("Arial", 24, "bold")
+             ).pack(pady=(0, 40))
+
+    # Button frame
+    button_frame = tk.Frame(main_frame, bg=DARK_THEME['bg'])
+    button_frame.pack()
+
+    # Buttons with icons and consistent styling
+    DarkButton(button_frame, 
+              text="🚀 Continue Without Account", 
+              command=continue_without_account,
+              width=25
+              ).pack(pady=10, fill=tk.X)
+
+    DarkButton(button_frame, 
+              text="🔑 Sign In", 
+              command=sign_in,
+              width=25
+              ).pack(pady=10, fill=tk.X)
+
+    DarkButton(button_frame, 
+              text="📝 Sign Up", 
+              command=sign_up,
+              width=25
+              ).pack(pady=10, fill=tk.X)
+
+    DarkButton(button_frame, 
+              text="ℹ️ About Me", 
+              command=about_me,
+              width=25
+              ).pack(pady=10, fill=tk.X)
+
+    # Footer
+    footer_frame = tk.Frame(main_frame, bg=DARK_THEME['bg'])
+    footer_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=20)
+
+    DarkLabel(footer_frame, 
+             text="© 2025 Voice Assistant | Version 1.0",
+             font=("Arial", 8)
+             ).pack()
 
 def clear_window():
     global assistant_stop_event
@@ -519,30 +677,60 @@ def clear_window():
 
 def continue_without_account():
     clear_window()
-    conversation_area = tk.Text(window, wrap=tk.WORD)
-    conversation_area.pack(fill=tk.BOTH, expand=True)
+    configure_window()
+
+    # Main frame
+    main_frame = tk.Frame(window, bg=DARK_THEME['bg'])
+    main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+
+    # Header
+    header_frame = tk.Frame(main_frame, bg=DARK_THEME['bg'])
+    header_frame.pack(fill=tk.X, pady=10)
+
+    DarkLabel(header_frame, 
+             text="GUEST MODE", 
+             font=("Arial", 16, "bold")
+             ).pack(side=tk.LEFT)
+
+    # Conversation area
+    conv_frame = tk.Frame(main_frame, bg=DARK_THEME['bg'])
+    conv_frame.pack(fill=tk.BOTH, expand=True)
+
+    conversation_area = DarkText(conv_frame)
+    scrollbar = DarkScrollbar(conv_frame, command=conversation_area.yview)
     
-    scrollbar = tk.Scrollbar(conversation_area)
     scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+    conversation_area.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+    
     conversation_area.config(yscrollcommand=scrollbar.set)
-    scrollbar.config(command=conversation_area.yview)
     
-    wishMe()  # This calls speak() internally
+    # Welcome message
+    conversation_area.insert(tk.END, "Voice Assistant - Guest Mode\n\n")
+    wishMe()
+    window.after(1500, lambda: speak("Voice Assistant initialized in guest mode."))
     
-    # Then after a delay, speak the welcome message
-    window.after(1500, lambda: speak("Voice Assistant initialized."))
-    welcome_msg = "Voice Assistant initialized.\n\n"
-    conversation_area.insert(tk.END, welcome_msg)
+    # Start listening
+    global assistant_stop_event
+    assistant_stop_event = listen_and_respond(conversation_area)
     
-    listen_and_respond(conversation_area)
-    
-    button_frame = tk.Frame(window)
-    button_frame.pack(fill=tk.X)
+    # Control buttons
+    button_frame = tk.Frame(main_frame, bg=DARK_THEME['bg'])
+    button_frame.pack(fill=tk.X, pady=10)
 
-    tk.Button(window, text="Sign Up", command=sign_up).pack(side=tk.RIGHT)
-    tk.Button(window, text="Sign In", command=sign_in).pack(side=tk.RIGHT)
-    tk.Button(window, text="Main Menu", command=setup_main_screen).pack()
+    DarkButton(button_frame, 
+              text="🔙 Main Menu", 
+              command=setup_main_screen
+              ).pack(side=tk.LEFT, padx=5)
 
+    DarkButton(button_frame, 
+              text="📝 Sign Up", 
+              command=sign_up
+              ).pack(side=tk.LEFT, padx=5)
+
+    DarkButton(button_frame, 
+              text="🔑 Sign In", 
+              command=sign_in
+              ).pack(side=tk.LEFT, padx=5)
 def sign_up():
     def create_account_if_valid():
         # Get and clean input values
@@ -609,29 +797,64 @@ def sign_up():
         except Exception as e:
             messagebox.showerror("Error", f"An unexpected error occurred: {str(e)}")
 
-    clear_window()
-    tk.Label(window, text="Name:").pack()
-    name_entry = tk.Entry(window)
-    name_entry.pack()
+    try:
+        clear_window()
+        configure_window()
 
-    tk.Label(window, text="Last Name:").pack()
-    last_entry = tk.Entry(window)
-    last_entry.pack()
+        # Create a frame for better layout control (matches sign-in style)
+        signup_frame = tk.Frame(window, bg=DARK_THEME['bg'])
+        signup_frame.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
 
-    tk.Label(window, text="Email:").pack()
-    email_entry = tk.Entry(window)
-    email_entry.pack()
+        # Title
+        DarkLabel(signup_frame, 
+                 text="CREATE ACCOUNT", 
+                 font=("Arial", 16, "bold")
+                 ).grid(row=0, column=0, columnspan=2, pady=(0, 20))
 
-    tk.Label(window, text="Password:").pack()
-    password_entry = tk.Entry(window, show="*")
-    password_entry.pack()
+        # Form fields
+        fields = [
+            ("Name:", "name_entry"),
+            ("Last Name:", "last_entry"),
+            ("Email:", "email_entry"),
+            ("Password:", "password_entry"),
+            ("Confirm Password:", "confirm_entry")
+        ]
 
-    tk.Label(window, text="Confirm Password:").pack()
-    confirm_entry = tk.Entry(window, show="*")
-    confirm_entry.pack()
+        entries = {}  # Dictionary to store all entry widgets
+        for i, (label_text, entry_name) in enumerate(fields, start=1):
+            DarkLabel(signup_frame, text=label_text).grid(row=i, column=0, sticky=tk.E, pady=5)
+            entry = DarkEntry(signup_frame, width=30)
+            entry.grid(row=i, column=1, pady=5, padx=10)
+            entries[entry_name] = entry  # Store the entry widget in dictionary
+            if "password" in entry_name:
+                entry.config(show="•")
 
-    tk.Button(window, text="Create Account", command=create_account_if_valid).pack()
-    tk.Button(window, text="Main Menu", command=setup_main_screen).pack()
+        # Store references to entry widgets
+        global name_entry, last_entry, email_entry, password_entry, confirm_entry
+        name_entry = entries["name_entry"]
+        last_entry = entries["last_entry"]
+        email_entry = entries["email_entry"]
+        password_entry = entries["password_entry"]
+        confirm_entry = entries["confirm_entry"]
+
+        # Buttons
+        button_frame = tk.Frame(signup_frame, bg=DARK_THEME['bg'])
+        button_frame.grid(row=len(fields)+1, column=0, columnspan=2, pady=20)
+
+        DarkButton(button_frame, 
+                  text="Create Account", 
+                  command=create_account_if_valid
+                  ).pack(side=tk.LEFT, padx=10)
+
+        DarkButton(button_frame, 
+                  text="Main Menu", 
+                  command=setup_main_screen
+                  ).pack(side=tk.LEFT, padx=10)
+
+    except Exception as e:
+        print(f"Error initializing signup screen: {e}")
+        messagebox.showerror("Error", "Failed to initialize signup form")
+        setup_main_screen()
 
 def get_user_from_database(email):
     cursor = db_manager.execute("SELECT * FROM users WHERE email = ?", (email,))
@@ -639,18 +862,45 @@ def get_user_from_database(email):
 
 def sign_in():
     clear_window()
+    configure_window()
 
-    tk.Label(window, text="Email:").pack()
-    email_entry = tk.Entry(window)
-    email_entry.pack()
+    # Create a frame for better layout control
+    login_frame = tk.Frame(window, bg=DARK_THEME['bg'])
+    login_frame.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
 
-    tk.Label(window, text="Password:").pack()
-    password_entry = tk.Entry(window, show="*")
-    password_entry.pack()
+    # Title
+    DarkLabel(login_frame, 
+             text="Voice Assistant Login", 
+             font=("Arial", 16, "bold")).grid(row=0, column=0, columnspan=2, pady=20)
+
+    # Email
+    DarkLabel(login_frame, text="Email:").grid(row=1, column=0, sticky=tk.E, pady=5)
+    email_entry = DarkEntry(login_frame, width=30)
+    email_entry.grid(row=1, column=1, pady=5, padx=10)
+
+    # Password
+    DarkLabel(login_frame, text="Password:").grid(row=2, column=0, sticky=tk.E, pady=5)
+    password_entry = DarkEntry(login_frame, width=30, show="*")
+    password_entry.grid(row=2, column=1, pady=5, padx=10)
+
+    # Buttons
+    button_frame = tk.Frame(login_frame, bg=DARK_THEME['bg'])
+    button_frame.grid(row=3, column=0, columnspan=2, pady=20)
+
+    DarkButton(button_frame, 
+              text="Login", 
+              command=lambda: login(email_entry.get(), password_entry.get())
+              ).pack(side=tk.LEFT, padx=10)
     
-    tk.Button(window, text="Login", command=lambda: login(email_entry.get(), password_entry.get())).pack()
-    tk.Button(window, text="Sign Up", command=sign_up).pack()
-    tk.Button(window, text="Main Menu", command=setup_main_screen).pack()
+    DarkButton(button_frame, 
+              text="Sign Up", 
+              command=sign_up
+              ).pack(side=tk.LEFT, padx=10)
+    
+    DarkButton(button_frame, 
+              text="Main Menu", 
+              command=setup_main_screen
+              ).pack(side=tk.LEFT, padx=10)
 
 def login(email, password):
     if not email or not password:
@@ -681,7 +931,7 @@ def login(email, password):
         messagebox.showerror("Error", "Invalid password")
 
 def logged_in():
-    global current_state, assistant_stop_event, current
+    global current_state, assistant_stop_event
     
     # Stop any existing assistant
     if assistant_stop_event:
@@ -692,143 +942,223 @@ def logged_in():
     
     current_state = "logged_in"
     clear_window()
-    
+    configure_window()
+
     user_name = f"{current_user[1]} {current_user[2]}"
 
-    db_manager.execute("SELECT voice_speed FROM users WHERE email=?", (current_user_email,))
-    speed_setting = db_manager.fetchone()
-    if speed_setting:
-        speed = speed_setting[0]
-        engine.setProperty('rate', 200 if speed == "Fast" else 100 if speed == "Slow" else 150)
+    # Main conversation frame
+    main_frame = tk.Frame(window, bg=DARK_THEME['bg'])
+    main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+
+    # Header with user info
+    header_frame = tk.Frame(main_frame, bg=DARK_THEME['bg'])
+    header_frame.pack(fill=tk.X, pady=10)
     
-    conversation_area = tk.Text(window, wrap=tk.WORD)
-    conversation_area.pack(fill=tk.BOTH, expand=True)
+    DarkLabel(header_frame, 
+             text=f"Voice Assistant - {user_name}", 
+             font=("Arial", 14, "bold")
+             ).pack(side=tk.LEFT)
     
-    scrollbar = tk.Scrollbar(conversation_area)
+    # Conversation area
+    conv_frame = tk.Frame(main_frame, bg=DARK_THEME['bg'])
+    conv_frame.pack(fill=tk.BOTH, expand=True)
+    
+    conversation_area = DarkText(conv_frame)
+    conversation_area.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+    
+    scrollbar = DarkScrollbar(conv_frame, command=conversation_area.yview)
     scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-    conversation_area.config(yscrollcommand=scrollbar.set)
-    scrollbar.config(command=conversation_area.yview)
     
-    welcome_msg = f"Voice Assistant - Logged in as {user_name}\n\n"
+    conversation_area.config(yscrollcommand=scrollbar.set)
+    
+    # Welcome message
+    welcome_msg = f"Voice Assistant initialized.\nLogged in as {user_name}\n\n"
     conversation_area.insert(tk.END, welcome_msg)
     
-    wishMe()  # This calls speak() internally
+    # Control buttons
+    button_frame = tk.Frame(main_frame, bg=DARK_THEME['bg'])
+    button_frame.pack(fill=tk.X, pady=10)
     
-    # Then after a delay, speak the welcome message
+    DarkButton(button_frame, 
+              text="LOG OUT", 
+              command=log_out
+              ).pack(side=tk.LEFT, padx=5)
+    
+    DarkButton(button_frame, 
+              text="History", 
+              command=show_history
+              ).pack(side=tk.LEFT, padx=5)
+    
+    DarkButton(button_frame, 
+              text="Settings", 
+              command=show_settings
+              ).pack(side=tk.LEFT, padx=5)
+    
+    DarkButton(button_frame, 
+              text="About Me", 
+              command=about_me
+              ).pack(side=tk.LEFT, padx=5)
+    
+    wishMe()
     window.after(1500, lambda: speak("Voice Assistant initialized."))
     
-    
-    if 'assistant_stop_event' in globals():
-        assistant_stop_event.set()
     assistant_stop_event = listen_and_respond(conversation_area)
-    
-    button_frame = tk.Frame(window)
-    button_frame.pack(fill=tk.X)
-
-    tk.Button(window, text="LOG OUT", command=log_out).pack()
-    tk.Button(window, text="History", command=show_history).pack()
-    tk.Button(window, text="Settings", command=show_settings).pack()
-    tk.Button(window, text="About Me", command=about_me).pack()
 
 def show_settings():
     clear_window()
-    
+    configure_window()
+
+    def ask_for_password(stored_hashed_password):
+        password_window = tk.Toplevel(window)
+        password_window.title("Verify Password")
+        password_window.configure(bg=DARK_THEME['bg'])
+        password_window.resizable(False, False)
+        
+        DarkLabel(password_window, text="Enter your password:").pack(pady=10)
+        password_entry = DarkEntry(password_window, show='*')
+        password_entry.pack(pady=5)
+
+        def verify_password():
+            try:
+                if ph.verify(stored_hashed_password, password_entry.get()):
+                    password_window.destroy()
+                    change_name_window()
+                else:
+                    messagebox.showerror("Error", "Incorrect password")
+            except VerifyMismatchError:
+                messagebox.showerror("Error", "Incorrect password")
+
+        button_frame = tk.Frame(password_window, bg=DARK_THEME['bg'])
+        button_frame.pack(pady=10)
+        
+        DarkButton(button_frame, 
+                  text="Verify", 
+                  command=verify_password
+                  ).pack(side=tk.LEFT, padx=5)
+        
+        DarkButton(button_frame, 
+                  text="Cancel", 
+                  command=password_window.destroy
+                  ).pack(side=tk.LEFT, padx=5)
+
+    def change_name_window():
+        change_window = tk.Toplevel(window)
+        change_window.title("Change Name")
+        change_window.configure(bg=DARK_THEME['bg'])
+        change_window.resizable(False, False)
+        
+        user_info = get_current_user_info()
+        if not user_info:
+            messagebox.showerror("Error", "User not found")
+            change_window.destroy()
+            return
+            
+        current_name, last_name, _ = user_info
+
+        DarkLabel(change_window, text="New first name:").pack(pady=5)
+        new_name_entry = DarkEntry(change_window)
+        new_name_entry.insert(0, current_name)
+        new_name_entry.pack(pady=5)
+
+        DarkLabel(change_window, text="New last name:").pack(pady=5)
+        new_last_entry = DarkEntry(change_window)
+        new_last_entry.insert(0, last_name if last_name else "")
+        new_last_entry.pack(pady=5)
+
+        def save_new_name():
+            new_name = new_name_entry.get().strip()
+            new_last = new_last_entry.get().strip()
+            
+            if not new_name:
+                messagebox.showerror("Error", "First name cannot be empty")
+                return
+                
+            try:
+                update_user_info(new_name, new_last)
+                messagebox.showinfo("Success", "Name updated successfully!")
+                change_window.destroy()
+                show_settings()  # Refresh settings page
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to update name: {str(e)}")
+
+        button_frame = tk.Frame(change_window, bg=DARK_THEME['bg'])
+        button_frame.pack(pady=10)
+        
+        DarkButton(button_frame, 
+                  text="Save", 
+                  command=save_new_name
+                  ).pack(side=tk.LEFT, padx=5)
+        
+        DarkButton(button_frame, 
+                  text="Cancel", 
+                  command=change_window.destroy
+                  ).pack(side=tk.LEFT, padx=5)
+
+    # Main settings window content
+    main_frame = tk.Frame(window, bg=DARK_THEME['bg'])
+    main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+
+    # Title
+    DarkLabel(main_frame, 
+             text="SETTINGS", 
+             font=("Arial", 16, "bold")
+             ).pack(pady=(0, 20))
+
     user_info = get_current_user_info()
     if user_info:
         current_name, last_name, stored_hashed_password = user_info
         full_name = f"{current_name} {last_name}" if last_name else current_name
 
-        # Display user info
-        tk.Label(window, text="Current Name:").pack()
-        name_label = tk.Label(window, text=full_name)
-        name_label.pack()
+        # User Profile Section
+        profile_frame = tk.Frame(main_frame, bg=DARK_THEME['bg'])
+        profile_frame.pack(fill=tk.X, pady=10)
 
-        tk.Label(window, text="Email:").pack()
-        email_label = tk.Label(window, text=current_user_email)
-        email_label.pack()
+        DarkLabel(profile_frame, 
+                 text="👤 User Profile", 
+                 font=("Arial", 12, "bold")
+                 ).pack(anchor=tk.W)
 
-        # Name change section
-        def ask_for_password():
-            password_window = tk.Toplevel(window)
-            password_window.title("Verify Password")
-            
-            tk.Label(password_window, text="Enter your password:").pack()
-            password_entry = tk.Entry(password_window, show='*')
-            password_entry.pack()
+        info_frame = tk.Frame(profile_frame, bg=DARK_THEME['bg'])
+        info_frame.pack(fill=tk.X, pady=10)
 
-            def verify_password():
-                try:
-                    if ph.verify(stored_hashed_password, password_entry.get()):
-                        password_window.destroy()
-                        change_name_window()
-                    else:
-                        messagebox.showerror("Error", "Incorrect password")
-                except VerifyMismatchError:
-                    messagebox.showerror("Error", "Incorrect password")
+        DarkLabel(info_frame, text="Name:", width=10).grid(row=0, column=0, sticky=tk.W)
+        DarkLabel(info_frame, text=full_name).grid(row=0, column=1, sticky=tk.W)
 
-            tk.Button(password_window, text="Verify", command=verify_password).pack()
+        DarkLabel(info_frame, text="Email:", width=10).grid(row=1, column=0, sticky=tk.W, pady=5)
+        DarkLabel(info_frame, text=current_user_email).grid(row=1, column=1, sticky=tk.W)
 
-        def capitalize_name(name_str):
-            """Capitalize first letter of each name part (including after hyphens)"""
-            return ' '.join(
-                word.capitalize() for part in name_str.split() 
-                for word in part.split('-')
-            ).replace('- ', '-')
+        DarkButton(profile_frame, 
+                  text="✏️ Change Name", 
+                  command=lambda: ask_for_password(stored_hashed_password)
+                  ).pack(pady=10)
 
-        def change_name_window():
-            change_window = tk.Toplevel(window)
-            change_window.title("Change Name")
-            
-            tk.Label(change_window, text="New first name:").pack()
-            new_name_entry = tk.Entry(change_window)
-            new_name_entry.insert(0, current_name)
-            new_name_entry.pack()
+        # Voice Settings Section
+        voice_frame = tk.Frame(main_frame, bg=DARK_THEME['bg'])
+        voice_frame.pack(fill=tk.X, pady=20)
 
-            tk.Label(change_window, text="New last name:").pack()
-            new_last_entry = tk.Entry(change_window)
-            new_last_entry.insert(0, last_name if last_name else "")
-            new_last_entry.pack()
+        DarkLabel(voice_frame, 
+                 text="🔊 Voice Settings", 
+                 font=("Arial", 12, "bold")
+                 ).pack(anchor=tk.W)
 
-            def save_new_name():
-                # Get and clean input
-                new_name = new_name_entry.get().strip()
-                new_last = new_last_entry.get().strip()
-                
-                if not new_name:  # At least first name is required
-                    messagebox.showerror("Error", "First name cannot be empty")
-                    return
-                
-                # Capitalize both names
-                capitalized_name = capitalize_name(new_name)
-                capitalized_last = capitalize_name(new_last) if new_last else ""
-                
-                try:
-                    update_user_info(capitalized_name, capitalized_last)
-                    name_label.config(text=f"{capitalized_name} {capitalized_last}" if capitalized_last else capitalized_name)
-                    messagebox.showinfo("Success", "Name updated successfully!")
-                    change_window.destroy()
-                except Exception as e:
-                    messagebox.showerror("Error", f"Failed to update name: {str(e)}")
+        speed_frame = tk.Frame(voice_frame, bg=DARK_THEME['bg'])
+        speed_frame.pack(fill=tk.X, pady=10)
 
-            tk.Button(change_window, text="Save", command=save_new_name).pack()
-
-        tk.Button(window, text="✏️ Change Name", command=ask_for_password).pack(pady=10)
-
-        # Voice speed settings
-        tk.Label(window, text="\nVoice Speed Settings", font="Arial 12 bold").pack()
-
+        DarkLabel(speed_frame, text="Voice Speed:").pack(side=tk.LEFT)
+        
+        speed_combobox = Combobox(speed_frame, 
+                                values=["Fast", "Normal", "Slow"], 
+                                state="readonly")
+        speed_combobox.pack(side=tk.LEFT, padx=10)
+        
+        # Set current speed
         db_manager.execute("SELECT voice_speed FROM users WHERE email=?", (current_user_email,))
         saved_speed = db_manager.fetchone()
         current_speed = saved_speed[0] if saved_speed else "Normal"
-
-        tk.Label(window, text="Voice Speed:").pack()
-        speed_combobox = Combobox(window, values=["Fast", "Normal", "Slow"], state="readonly")
-        speed_combobox.pack()
         speed_combobox.set(current_speed)
-
-        def save_voice_settings():
+        
+        def save_speed():
             new_speed = speed_combobox.get()
-            
             db_manager.execute("""
                 UPDATE users 
                 SET voice_speed=? 
@@ -837,16 +1167,18 @@ def show_settings():
             db_manager.commit()
             
             engine.setProperty('rate', 200 if new_speed == "Fast" else 100 if new_speed == "Slow" else 150)
-            
-            engine.say("Voice speed updated")
-            engine.runAndWait()
-            
             messagebox.showinfo("Saved", "Voice speed updated!")
+        
+        DarkButton(speed_frame, 
+                  text="💾 Save", 
+                  command=save_speed
+                  ).pack(side=tk.LEFT, padx=10)
 
-        tk.Button(window, text="💾 Save Settings", command=save_voice_settings).pack(pady=10)
-        tk.Button(window, text="🔙 Back to Assistant", command=logged_in).pack(pady=5)
-    else:
-        tk.Label(window, text="User not found.").pack()
+    # Back button
+    DarkButton(main_frame, 
+              text="🔙 Back to Assistant", 
+              command=logged_in
+              ).pack(pady=20)
 
 def get_current_user_info():
     print(f"Looking up user with email: {current_user_email}")
@@ -872,55 +1204,66 @@ def log_conversation(email, speaker, message):
 
 def show_history():
     clear_window()
-    
-    # Debug: Print current user email
-    print(f"DEBUG: Current user email is: '{current_user_email}'")
-    
-    # Create a frame for the history display
-    frame = tk.Frame(window)
-    frame.pack(fill=tk.BOTH, expand=True)
-    
-    # Create text widget with scrollbar
-    text_area = tk.Text(frame, wrap=tk.WORD)
-    scrollbar = tk.Scrollbar(frame, command=text_area.yview)
+    configure_window()
+
+    # Main container
+    history_frame = tk.Frame(window, bg=DARK_THEME['bg'])
+    history_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+
+    # Header
+    header_frame = tk.Frame(history_frame, bg=DARK_THEME['bg'])
+    header_frame.pack(fill=tk.X, pady=10)
+
+    DarkLabel(header_frame, 
+             text="CONVERSATION HISTORY", 
+             font=("Arial", 16, "bold")
+             ).pack(side=tk.LEFT)
+
+    DarkButton(header_frame, 
+              text="🔙 Back", 
+              command=logged_in
+              ).pack(side=tk.RIGHT)
+
+    # Text area with scrollbar
+    text_frame = tk.Frame(history_frame, bg=DARK_THEME['bg'])
+    text_frame.pack(fill=tk.BOTH, expand=True)
+
+    text_area = DarkText(text_frame)
+    scrollbar = DarkScrollbar(text_frame, command=text_area.yview)
     text_area.config(yscrollcommand=scrollbar.set)
-    
-    # Pack them properly
+
     scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
     text_area.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-    
-    # Debug: Print the query we're about to execute
-    query = "SELECT timestamp, speaker, message FROM conversations WHERE user_email = ? ORDER BY timestamp DESC"
-    print(f"DEBUG: Executing query: {query} with email: '{current_user_email}'")
-    
-    # Fetch conversations from database
-    cursor = db_manager.execute(query, (current_user_email,))
+
+    # Fetch and display history
+    cursor = db_manager.execute(
+        "SELECT timestamp, speaker, message FROM conversations WHERE user_email = ? ORDER BY timestamp DESC", 
+        (current_user_email,)
+    )
     conversations = cursor.fetchall()
-    
-    # Debug: Print the results we got
-    print(f"DEBUG: Found {len(conversations)} conversations")
-    for i, conv in enumerate(conversations):
-        print(f"DEBUG: Conversation {i}: {conv}")
-    
+
     if not conversations:
         text_area.insert(tk.END, "No conversation history found")
     else:
-        text_area.insert(tk.END, "Conversation History:\n\n")
+        text_area.insert(tk.END, "Your Conversation History:\n\n")
         for timestamp, speaker, message in conversations:
-            text_area.insert(tk.END, f"{timestamp} - {speaker}: {message}\n\n")
-    
-    # Make text area read-only
+            # Color coding for speaker
+            speaker_color = DARK_THEME['accent'] if speaker == "BOT" else DARK_THEME['secondary']
+            text_area.insert(tk.END, f"{timestamp} - ", "timestamp")
+            text_area.insert(tk.END, f"{speaker}: ", ("speaker", speaker.lower()))
+            text_area.insert(tk.END, f"{message}\n\n")
+            
+        # Configure tags for styling
+        text_area.tag_config("timestamp", foreground="#aaaaaa")
+        text_area.tag_config("speaker", font=("Arial", 10, "bold"))
+        text_area.tag_config("user", foreground=DARK_THEME['secondary'])
+        text_area.tag_config("bot", foreground=DARK_THEME['accent'])
+
     text_area.config(state=tk.DISABLED)
-    
-    # Add back button at bottom
-    tk.Button(window, text="Back to Assistant", command=logged_in).pack()
-    
-    # Force update the display
-    window.update()
 
 def about_me():
     clear_window()
-    
+    configure_window()
     # Main frame with scrollbar
     main_frame = tk.Frame(window)
     main_frame.pack(fill=tk.BOTH, expand=True)
@@ -1621,7 +1964,13 @@ if __name__ == "__main__":
         
         # Create main window
         window = tk.Tk()
-        setup_main_screen()
+        configure_window()
+        def delayed_start():
+            setup_main_screen()
+            window.attributes('-topmost', 1)  # Bring to front
+            window.attributes('-topmost', 0)  # Allow other windows to top
+            
+        window.after(500, delayed_start)  # 500ms delay
         
         def on_closing():
             try:
