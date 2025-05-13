@@ -801,7 +801,7 @@ def sign_up():
         clear_window()
         configure_window()
 
-        # Create a frame for better layout control (matches sign-in style)
+        # Create a frame for better layout control
         signup_frame = tk.Frame(window, bg=DARK_THEME['bg'])
         signup_frame.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
 
@@ -809,7 +809,7 @@ def sign_up():
         DarkLabel(signup_frame, 
                  text="CREATE ACCOUNT", 
                  font=("Arial", 16, "bold")
-                 ).grid(row=0, column=0, columnspan=2, pady=(0, 20))
+                 ).grid(row=0, column=0, columnspan=3, pady=(0, 20))
 
         # Form fields
         fields = [
@@ -820,14 +820,22 @@ def sign_up():
             ("Confirm Password:", "confirm_entry")
         ]
 
-        entries = {}  # Dictionary to store all entry widgets
+        entries = {}
         for i, (label_text, entry_name) in enumerate(fields, start=1):
             DarkLabel(signup_frame, text=label_text).grid(row=i, column=0, sticky=tk.E, pady=5)
-            entry = DarkEntry(signup_frame, width=30)
-            entry.grid(row=i, column=1, pady=5, padx=10)
-            entries[entry_name] = entry  # Store the entry widget in dictionary
-            if "password" in entry_name:
-                entry.config(show="•")
+            
+            # Create entry frame to hold both entry and toggle button
+            entry_frame = tk.Frame(signup_frame, bg=DARK_THEME['bg'])
+            entry_frame.grid(row=i, column=1, pady=5, sticky='ew')
+            
+            entry = DarkEntry(entry_frame, width=25)
+            entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            entries[entry_name] = entry
+            
+            if entry_name in ["password_entry", "confirm_entry"]:
+                entry.config(show="•")  # Set to show bullets by default
+                toggle_btn = create_password_toggle(entry_frame, entry)
+                toggle_btn.pack(side=tk.LEFT)
 
         # Store references to entry widgets
         global name_entry, last_entry, email_entry, password_entry, confirm_entry
@@ -839,7 +847,7 @@ def sign_up():
 
         # Buttons
         button_frame = tk.Frame(signup_frame, bg=DARK_THEME['bg'])
-        button_frame.grid(row=len(fields)+1, column=0, columnspan=2, pady=20)
+        button_frame.grid(row=len(fields)+1, column=0, columnspan=3, pady=20)
 
         DarkButton(button_frame, 
                   text="Create Account", 
@@ -880,8 +888,16 @@ def sign_in():
 
     # Password
     DarkLabel(login_frame, text="Password:").grid(row=2, column=0, sticky=tk.E, pady=5)
-    password_entry = DarkEntry(login_frame, width=30, show="*")
-    password_entry.grid(row=2, column=1, pady=5, padx=10)
+    
+    # Password entry with toggle
+    password_frame = tk.Frame(login_frame, bg=DARK_THEME['bg'])
+    password_frame.grid(row=2, column=1, pady=5, sticky='ew')
+    
+    password_entry = DarkEntry(password_frame, width=25, show="•")
+    password_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+    
+    toggle_btn = create_password_toggle(password_frame, password_entry)
+    toggle_btn.pack(side=tk.LEFT)
 
     # Buttons
     button_frame = tk.Frame(login_frame, bg=DARK_THEME['bg'])
@@ -901,7 +917,7 @@ def sign_in():
               text="Main Menu", 
               command=setup_main_screen
               ).pack(side=tk.LEFT, padx=10)
-
+    
 def login(email, password):
     if not email or not password:
         messagebox.showerror("Error", "Please enter both email and password")
@@ -1015,8 +1031,16 @@ def show_settings():
         password_window.resizable(False, False)
         
         DarkLabel(password_window, text="Enter your password:").pack(pady=10)
-        password_entry = DarkEntry(password_window, show='*')
-        password_entry.pack(pady=5)
+        
+        # Password entry with toggle
+        password_frame = tk.Frame(password_window, bg=DARK_THEME['bg'])
+        password_frame.pack(pady=5)
+        
+        password_entry = DarkEntry(password_frame, show='•', width=28)
+        password_entry.pack(side=tk.LEFT)
+        
+        toggle_btn = create_password_toggle(password_frame, password_entry)
+        toggle_btn.pack(side=tk.LEFT, padx=(5,0))
 
         def verify_password():
             try:
@@ -1032,15 +1056,15 @@ def show_settings():
         button_frame.pack(pady=10)
         
         DarkButton(button_frame, 
-                  text="Verify", 
-                  command=verify_password
-                  ).pack(side=tk.LEFT, padx=5)
+                text="Verify", 
+                command=verify_password
+                ).pack(side=tk.LEFT, padx=5)
         
         DarkButton(button_frame, 
-                  text="Cancel", 
-                  command=password_window.destroy
-                  ).pack(side=tk.LEFT, padx=5)
-
+                text="Cancel", 
+                command=password_window.destroy
+                ).pack(side=tk.LEFT, padx=5)
+        
     def change_name_window():
         change_window = tk.Toplevel(window)
         change_window.title("Change Name")
@@ -1952,6 +1976,34 @@ def log_out():
     current_user_email = None
     clear_window()
     setup_main_screen()
+
+def create_password_toggle(parent, entry_widget):
+    """Create a show/hide password toggle button with text fallback"""
+    def toggle_password():
+        if entry_widget.cget('show') == '':
+            entry_widget.config(show='•')
+            toggle_btn.config(text='Show')
+        else:
+            entry_widget.config(show='')
+            toggle_btn.config(text='Hide')
+    
+    # Create button with text fallback
+    toggle_btn = tk.Button(
+        parent,
+        text='Show',
+        command=toggle_password,
+        font=("Arial", 8),
+        bg=DARK_THEME['entry_bg'],
+        fg=DARK_THEME['fg'],
+        activebackground=DARK_THEME['entry_bg'],
+        activeforeground=DARK_THEME['fg'],
+        relief=tk.FLAT,
+        borderwidth=0,
+        highlightthickness=0,
+        padx=2,
+        pady=2
+    )
+    return toggle_btn
 
 if __name__ == "__main__":
     try:
