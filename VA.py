@@ -600,9 +600,9 @@ def listen_and_respond(conversation_area):
                 
             last_command = command
             
-            window.after(0, lambda: update_gui(f"USER: {command}\n"))
-            window.after(0, lambda: update_gui(f"BOT: {response}\n\n"))
-            speak(response)
+            if response:
+                window.after(0, lambda: update_gui(f"BOT: {response}\n\n"))
+                speak(response)
 
     assistant_thread = threading.Thread(target=assistant_loop)
     assistant_thread.daemon = True
@@ -676,61 +676,81 @@ def clear_window():
         widget.destroy()
 
 def continue_without_account():
-    clear_window()
-    configure_window()
+    try:
+        clear_window()
+        configure_window()
 
-    # Main frame
-    main_frame = tk.Frame(window, bg=DARK_THEME['bg'])
-    main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+        # Main frame
+        main_frame = tk.Frame(window, bg=DARK_THEME['bg'])
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
 
-    # Header
-    header_frame = tk.Frame(main_frame, bg=DARK_THEME['bg'])
-    header_frame.pack(fill=tk.X, pady=10)
+        # Conversation area with scrollbar
+        conv_frame = tk.Frame(main_frame, bg=DARK_THEME['bg'])
+        conv_frame.pack(fill=tk.BOTH, expand=True)
 
-    DarkLabel(header_frame, 
-             text="GUEST MODE", 
-             font=("Arial", 16, "bold")
-             ).pack(side=tk.LEFT)
+        conversation_area = tk.Text(
+            conv_frame,
+            bg=DARK_THEME['text_bg'],
+            fg=DARK_THEME['text_fg'],
+            insertbackground=DARK_THEME['fg'],
+            wrap=tk.WORD,
+            font=('Arial', 10)
+        )
+        scrollbar = tk.Scrollbar(conv_frame, command=conversation_area.yview)
+        conversation_area.config(yscrollcommand=scrollbar.set)
+        
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        conversation_area.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-    # Conversation area
-    conv_frame = tk.Frame(main_frame, bg=DARK_THEME['bg'])
-    conv_frame.pack(fill=tk.BOTH, expand=True)
+        # Welcome message
+        conversation_area.insert(tk.END, "Voice Assistant - Guest Mode\n\n")
+        
+        # Initialize speech engine safely
+        try:
+            wishMe()
+            window.after(1500, lambda: speak("Voice Assistant initialized in guest mode."))
+        except Exception as e:
+            print(f"Speech initialization error: {e}")
+            conversation_area.insert(tk.END, "Speech functions unavailable\n")
 
-    conversation_area = DarkText(conv_frame)
-    scrollbar = DarkScrollbar(conv_frame, command=conversation_area.yview)
-    
-    scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-    conversation_area.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-    
-    conversation_area.config(yscrollcommand=scrollbar.set)
-    
-    # Welcome message
-    conversation_area.insert(tk.END, "Voice Assistant - Guest Mode\n\n")
-    wishMe()
-    window.after(1500, lambda: speak("Voice Assistant initialized in guest mode."))
-    
-    # Start listening
-    global assistant_stop_event
-    assistant_stop_event = listen_and_respond(conversation_area)
-    
-    # Control buttons
-    button_frame = tk.Frame(main_frame, bg=DARK_THEME['bg'])
-    button_frame.pack(fill=tk.X, pady=10)
+        # Start listening thread safely
+        global assistant_stop_event
+        try:
+            assistant_stop_event = listen_and_respond(conversation_area)
+        except Exception as e:
+            print(f"Listener error: {e}")
+            conversation_area.insert(tk.END, "Could not start voice listener\n")
 
-    DarkButton(button_frame, 
-              text="🔙 Main Menu", 
-              command=setup_main_screen
-              ).pack(side=tk.LEFT, padx=5)
+        # Control buttons
+        button_frame = tk.Frame(main_frame, bg=DARK_THEME['bg'])
+        button_frame.pack(fill=tk.X, pady=10)
 
-    DarkButton(button_frame, 
-              text="📝 Sign Up", 
-              command=sign_up
-              ).pack(side=tk.LEFT, padx=5)
+        tk.Button(button_frame, 
+                text="Main Menu",
+                command=setup_main_screen,
+                bg=DARK_THEME['button_bg'],
+                fg=DARK_THEME['fg']
+                ).pack(side=tk.LEFT, padx=5)
 
-    DarkButton(button_frame, 
-              text="🔑 Sign In", 
-              command=sign_in
-              ).pack(side=tk.LEFT, padx=5)
+        tk.Button(button_frame, 
+                text="Sign Up", 
+                command=sign_up,
+                bg=DARK_THEME['button_bg'],
+                fg=DARK_THEME['fg']
+                ).pack(side=tk.LEFT, padx=5)
+
+        tk.Button(button_frame, 
+                text="Sign In", 
+                command=sign_in,
+                bg=DARK_THEME['button_bg'],
+                fg=DARK_THEME['fg']
+                ).pack(side=tk.LEFT, padx=5)
+
+    except Exception as e:
+        print(f"Fatal error in guest mode: {e}")
+        messagebox.showerror("Error", "Failed to initialize guest mode")
+        setup_main_screen()
+        
 def sign_up():
     def create_account_if_valid():
         # Get and clean input values
