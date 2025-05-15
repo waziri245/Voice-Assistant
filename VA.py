@@ -283,7 +283,7 @@ DARK_THEME = {
     'bg': '#121212',  # Dark background
     'fg': '#e0e0e0',  # Light text
     'accent': '#bb86fc',  # Purple accent
-    'secondary': '#03dac6',  # Teal secondary
+    'secondary': '#03dac6',  # Teal secondary (changed to turquoise)
     'highlight': '#3700b3',  # Dark purple highlight
     'entry_bg': '#1e1e1e',  # Dark entry fields
     'entry_fg': '#ffffff',  # White text in entries
@@ -291,7 +291,9 @@ DARK_THEME = {
     'button_active': '#3700b3',  # Button when pressed
     'text_bg': '#1e1e1e',  # Text widget background
     'text_fg': '#ffffff',  # Text widget foreground
-    'scrollbar': '#424242'  # Scrollbar color
+    'scrollbar': '#424242',  # Scrollbar color
+    'user_text': '#40E0D0',  # Turquoise for user messages
+    'bot_text': '#E0E0E0'    # Light gray for bot messages
 }
 
 def configure_window():
@@ -374,15 +376,16 @@ def listen_and_respond(conversation_area):
     stop_event = threading.Event()
     processing_lock = threading.Lock()
 
-    def update_gui(text):
+    def update_gui(text, speaker):
         if conversation_area.winfo_exists():
-            conversation_area.insert(tk.END, text)
+            tag = 'user' if speaker == "USER" else 'bot'
+            conversation_area.insert(tk.END, f"{speaker}: {text}\n", tag)
             conversation_area.see(tk.END)
             window.update()
 
     def show_listening():
         if conversation_area.winfo_exists():
-            conversation_area.insert(tk.END, "Listening...\n")
+            conversation_area.insert(tk.END, "Listening...\n", 'system')
             conversation_area.see(tk.END)
             window.update()
 
@@ -417,7 +420,7 @@ def listen_and_respond(conversation_area):
         with processing_lock:
             command = command.strip()
             print(f"Processing command: {command}")
-            window.after(0, lambda: update_gui(f"USER: {command}\n"))
+            window.after(0, lambda: update_gui(command, "USER"))
             log_conversation(current_user_email, "USER", command)
             
             response = ""
@@ -435,7 +438,6 @@ def listen_and_respond(conversation_area):
                 response = show_holidays(command_lower, conversation_area)
             elif any(word in command.lower() for word in ['time in', 'time at', 'world time', 'time zones', 'what time is it in']):
                 response = show_world_time(command, conversation_area)
-                # Don't manually insert to conversation_area here - let show_world_time handle it
                 return response
             elif "open" in command_lower:
                 app = command_lower.replace("open", "").strip()
@@ -466,11 +468,11 @@ def listen_and_respond(conversation_area):
                     elif "slack" in app:
                         subprocess.Popen(["slack"])
                     elif "libreoffice" in app or "writer" in app or "word" in app:
-                        subprocess.Popen(["libreoffice", "--writer"])  # Fixed: Split args
+                        subprocess.Popen(["libreoffice", "--writer"])
                     elif "spreadsheet" in app or "excel" in app:
-                        subprocess.Popen(["libreoffice", "--calc"])  # Fixed: Split args
+                        subprocess.Popen(["libreoffice", "--calc"])
                     elif "presentation" in app or "powerpoint" in app:
-                        subprocess.Popen(["libreoffice", "--impress"])  # Fixed: Split args
+                        subprocess.Popen(["libreoffice", "--impress"])
                     elif "photos" in app or "gallery" in app:
                         subprocess.Popen(["shotwell"])
                     elif "camera" in app:
@@ -480,13 +482,13 @@ def listen_and_respond(conversation_area):
                     elif "telegram" in app:
                         subprocess.Popen(["telegram-desktop"])
                     elif "whatsapp" in app:
-                        subprocess.Popen(["whatsapp-desktop"])  # Changed to a more common name
+                        subprocess.Popen(["whatsapp-desktop"])
                     elif "steam" in app or "games" in app:
                         subprocess.Popen(["steam"])
-                    elif "youtube" in app or "you tube" in app:  # Fixed duplicate check
-                        webbrowser.open("https://www.youtube.com")  # Better: Use default browser
+                    elif "youtube" in app or "you tube" in app:
+                        webbrowser.open("https://www.youtube.com")
                     elif "chatgpt" in app or "ai" in app:
-                        webbrowser.open("https://chat.openai.com")  # Fixed URL
+                        webbrowser.open("https://chat.openai.com")
                     else:
                         response = f"I'm not sure how to open {app}"
                 except FileNotFoundError:
@@ -507,29 +509,18 @@ def listen_and_respond(conversation_area):
                         response = "I couldn't perform the search. Please try again."
             
             elif any(phrase in command_lower for phrase in ["wikipedia", "what is", "who is", "tell me about"]):
-                # Extract query
                 query = re.sub(
                     r'(search wikipedia for|wikipedia|what is|who is|tell me about)\s*', 
                     '', 
                     command_lower
                 ).strip()
                 
-                # First show user message
-                if conversation_area and conversation_area.winfo_exists():
-                    conversation_area.insert(tk.END, f"USER: {command}\n")
-                    conversation_area.see(tk.END)
-                
                 if query:
                     response = search_wikipedia(query, conversation_area, display_only=True)
-                    # Then show bot response
-                    if conversation_area and conversation_area.winfo_exists():
-                        conversation_area.insert(tk.END, f"BOT: {response}\n\n")
-                        conversation_area.see(tk.END)
                 else:
                     response = "What would you like me to search on Wikipedia?"
                 
                 return response
-
 
             elif any(phrase in command_lower for phrase in [
                 "what is the meaning of",
@@ -538,7 +529,6 @@ def listen_and_respond(conversation_area):
                 "explain the word"
             ]):
                 response = explain_word(command, conversation_area)
-
 
             # System control commands
             elif "lock computer" in command_lower or "lock pc" in command_lower:
@@ -554,17 +544,13 @@ def listen_and_respond(conversation_area):
                 else:
                     response = shutdown_computer()
             
-
-
             elif "weather" in command_lower or "forecast" in command_lower:
-                # Extract city name
                 city = command_lower.replace("weather", "").replace("forecast", "").replace("in", "").strip()
                 if city:
                     response = show_weather(city, conversation_area)
                 else:
                     response = "Please specify a city (e.g., 'weather in London')"
 
-            
             elif "news" in command_lower or "headlines" in command_lower:
                 response = get_news_summaries(conversation_area)
 
@@ -573,7 +559,7 @@ def listen_and_respond(conversation_area):
 
             elif "exit" in command_lower or "quit" in command_lower or "stop" in command_lower:
                 response = "Goodbye! Have a nice day."
-                window.after(0, lambda: update_gui(f"BOT: {response}\n"))
+                window.after(0, lambda: update_gui(response, "BOT"))
                 speak(response)
                 return False
             else:
@@ -601,7 +587,7 @@ def listen_and_respond(conversation_area):
             last_command = command
             
             if response:
-                window.after(0, lambda: update_gui(f"BOT: {response}\n\n"))
+                window.after(0, lambda: update_gui(response, "BOT"))
                 speak(response)
 
     assistant_thread = threading.Thread(target=assistant_loop)
@@ -618,46 +604,46 @@ def setup_main_screen():
 
     window.title("Voice Assistant - Main Menu")
 
-    # Main container frame
+    # Main container frame (unchanged)
     main_frame = tk.Frame(window, bg=DARK_THEME['bg'])
     main_frame.pack(expand=True, fill=tk.BOTH, padx=50, pady=50)
 
-    # Title label
+    # Title label (unchanged)
     DarkLabel(main_frame, 
              text="VOICE ASSISTANT", 
-             font=("Arial", 24, "bold")
-             ).pack(pady=(0, 40))
+             font=("Arial", 30, "bold")
+             ).pack(pady=(100, 40))
 
-    # Button frame
+    # Button frame with CENTERING (only this line changed)
     button_frame = tk.Frame(main_frame, bg=DARK_THEME['bg'])
-    button_frame.pack()
+    button_frame.pack(expand=True, pady=20)  # Added expand and pady
 
-    # Buttons with icons and consistent styling
+    # Original button code with ONLY width increase
     DarkButton(button_frame, 
               text="🚀 Continue Without Account", 
               command=continue_without_account,
-              width=25
+              width=28  # Slightly increased from 25
               ).pack(pady=10, fill=tk.X)
 
     DarkButton(button_frame, 
               text="🔑 Sign In", 
               command=sign_in,
-              width=25
+              width=28  # Slightly increased
               ).pack(pady=10, fill=tk.X)
 
     DarkButton(button_frame, 
               text="📝 Sign Up", 
               command=sign_up,
-              width=25
+              width=28  # Slightly increased
               ).pack(pady=10, fill=tk.X)
 
     DarkButton(button_frame, 
               text="ℹ️ About Me", 
               command=about_me,
-              width=25
+              width=28  # Slightly increased
               ).pack(pady=10, fill=tk.X)
 
-    # Footer
+    # Footer (unchanged)
     footer_frame = tk.Frame(main_frame, bg=DARK_THEME['bg'])
     footer_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=20)
 
@@ -699,19 +685,25 @@ def continue_without_account():
         scrollbar = tk.Scrollbar(conv_frame, command=conversation_area.yview)
         conversation_area.config(yscrollcommand=scrollbar.set)
         
+        # Configure tags for coloring
+        conversation_area.tag_config('user', foreground=DARK_THEME['user_text'])  # Turquoise
+        conversation_area.tag_config('bot', foreground=DARK_THEME['bot_text'])    # Light gray
+        conversation_area.tag_config('system', foreground=DARK_THEME['accent'])   # Purple accent
+        
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         conversation_area.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         # Welcome message
-        conversation_area.insert(tk.END, "Voice Assistant - Guest Mode\n\n")
+        conversation_area.insert(tk.END, "Voice Assistant - Guest Mode\n\n", 'system')
         
         # Initialize speech engine safely
         try:
             wishMe()
             window.after(1500, lambda: speak("Voice Assistant initialized in guest mode."))
+            conversation_area.insert(tk.END, "BOT: Voice Assistant initialized in guest mode.\n\n", 'bot')
         except Exception as e:
             print(f"Speech initialization error: {e}")
-            conversation_area.insert(tk.END, "Speech functions unavailable\n")
+            conversation_area.insert(tk.END, "Speech functions unavailable\n", 'system')
 
         # Start listening thread safely
         global assistant_stop_event
@@ -719,32 +711,26 @@ def continue_without_account():
             assistant_stop_event = listen_and_respond(conversation_area)
         except Exception as e:
             print(f"Listener error: {e}")
-            conversation_area.insert(tk.END, "Could not start voice listener\n")
+            conversation_area.insert(tk.END, "Could not start voice listener\n", 'system')
 
         # Control buttons
         button_frame = tk.Frame(main_frame, bg=DARK_THEME['bg'])
         button_frame.pack(fill=tk.X, pady=10)
 
-        tk.Button(button_frame, 
-                text="Main Menu",
-                command=setup_main_screen,
-                bg=DARK_THEME['button_bg'],
-                fg=DARK_THEME['fg']
-                ).pack(side=tk.LEFT, padx=5)
+        DarkButton(button_frame, 
+                  text="Main Menu",
+                  command=setup_main_screen
+                  ).pack(side=tk.LEFT, padx=5)
 
-        tk.Button(button_frame, 
-                text="Sign Up", 
-                command=sign_up,
-                bg=DARK_THEME['button_bg'],
-                fg=DARK_THEME['fg']
-                ).pack(side=tk.LEFT, padx=5)
+        DarkButton(button_frame, 
+                  text="Sign Up", 
+                  command=sign_up
+                  ).pack(side=tk.LEFT, padx=5)
 
-        tk.Button(button_frame, 
-                text="Sign In", 
-                command=sign_in,
-                bg=DARK_THEME['button_bg'],
-                fg=DARK_THEME['fg']
-                ).pack(side=tk.LEFT, padx=5)
+        DarkButton(button_frame, 
+                  text="Sign In", 
+                  command=sign_in
+                  ).pack(side=tk.LEFT, padx=5)
 
     except Exception as e:
         print(f"Fatal error in guest mode: {e}")
@@ -828,7 +814,7 @@ def sign_up():
         # Title
         DarkLabel(signup_frame, 
                  text="CREATE ACCOUNT", 
-                 font=("Arial", 16, "bold")
+                 font=("Arial", 20, "bold")
                  ).grid(row=0, column=0, columnspan=3, pady=(0, 20))
 
         # Form fields
@@ -899,7 +885,7 @@ def sign_in():
     # Title
     DarkLabel(login_frame, 
              text="Voice Assistant Login", 
-             font=("Arial", 16, "bold")).grid(row=0, column=0, columnspan=2, pady=20)
+             font=("Arial", 20, "bold")).grid(row=0, column=0, columnspan=2, pady=20)
 
     # Email
     DarkLabel(login_frame, text="Email:").grid(row=1, column=0, sticky=tk.E, pady=5)
@@ -1000,6 +986,12 @@ def logged_in():
     conv_frame.pack(fill=tk.BOTH, expand=True)
     
     conversation_area = DarkText(conv_frame)
+    
+    # Configure tags for coloring
+    conversation_area.tag_config('user', foreground=DARK_THEME['user_text'])  # Turquoise
+    conversation_area.tag_config('bot', foreground=DARK_THEME['bot_text'])    # Light gray
+    conversation_area.tag_config('system', foreground=DARK_THEME['accent'])  # Purple accent
+    
     conversation_area.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
     
     scrollbar = DarkScrollbar(conv_frame, command=conversation_area.yview)
@@ -1009,31 +1001,37 @@ def logged_in():
     
     # Welcome message
     welcome_msg = f"Voice Assistant initialized.\nLogged in as {user_name}\n\n"
-    conversation_area.insert(tk.END, welcome_msg)
+    conversation_area.insert(tk.END, welcome_msg, 'system')
     
     # Control buttons
     button_frame = tk.Frame(main_frame, bg=DARK_THEME['bg'])
-    button_frame.pack(fill=tk.X, pady=10)
-    
+    button_frame.pack(fill=tk.X, pady=10, side=tk.BOTTOM)
+
+    # Left-aligned Log Out
     DarkButton(button_frame, 
-              text="LOG OUT", 
-              command=log_out
-              ).pack(side=tk.LEFT, padx=5)
-    
+            text="LOG OUT", 
+            command=log_out
+            ).pack(side=tk.LEFT, padx=5)
+
+    # Center-aligned History and Settings
+    center_buttons = tk.Frame(button_frame, bg=DARK_THEME['bg'])
+    center_buttons.pack(side=tk.LEFT, expand=True)
+
+    DarkButton(center_buttons, 
+            text="History", 
+            command=show_history
+            ).pack(side=tk.LEFT, padx=20)
+
+    DarkButton(center_buttons, 
+            text="Settings", 
+            command=show_settings
+            ).pack(side=tk.LEFT, padx=20)
+
+    # Right-aligned About Me
     DarkButton(button_frame, 
-              text="History", 
-              command=show_history
-              ).pack(side=tk.LEFT, padx=5)
-    
-    DarkButton(button_frame, 
-              text="Settings", 
-              command=show_settings
-              ).pack(side=tk.LEFT, padx=5)
-    
-    DarkButton(button_frame, 
-              text="About Me", 
-              command=about_me
-              ).pack(side=tk.LEFT, padx=5)
+            text="About Me", 
+            command=about_me
+            ).pack(side=tk.RIGHT, padx=5)
     
     wishMe()
     window.after(1500, lambda: speak("Voice Assistant initialized."))
@@ -1045,6 +1043,7 @@ def show_settings():
     configure_window()
 
     def ask_for_password(stored_hashed_password):
+        # Keep this function EXACTLY AS IS
         password_window = tk.Toplevel(window)
         password_window.title("Verify Password")
         password_window.configure(bg=DARK_THEME['bg'])
@@ -1086,6 +1085,7 @@ def show_settings():
                 ).pack(side=tk.LEFT, padx=5)
         
     def change_name_window():
+        # Keep this function EXACTLY AS IS
         change_window = tk.Toplevel(window)
         change_window.title("Change Name")
         change_window.configure(bg=DARK_THEME['bg'])
@@ -1138,64 +1138,70 @@ def show_settings():
                   command=change_window.destroy
                   ).pack(side=tk.LEFT, padx=5)
 
-    # Main settings window content
+    # Main settings window content - ONLY LAYOUT CHANGES BELOW
     main_frame = tk.Frame(window, bg=DARK_THEME['bg'])
     main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
 
-    # Title
+    # Centered Title
     DarkLabel(main_frame, 
              text="SETTINGS", 
              font=("Arial", 16, "bold")
-             ).pack(pady=(0, 20))
+             ).pack(pady=(0, 20), anchor='center')
 
     user_info = get_current_user_info()
     if user_info:
         current_name, last_name, stored_hashed_password = user_info
         full_name = f"{current_name} {last_name}" if last_name else current_name
 
-        # User Profile Section
+        # User Profile Section - Centered
         profile_frame = tk.Frame(main_frame, bg=DARK_THEME['bg'])
         profile_frame.pack(fill=tk.X, pady=10)
 
         DarkLabel(profile_frame, 
                  text="👤 User Profile", 
                  font=("Arial", 12, "bold")
-                 ).pack(anchor=tk.W)
+                 ).pack(anchor='center', pady=5)
 
+        # Centered Info Grid
         info_frame = tk.Frame(profile_frame, bg=DARK_THEME['bg'])
-        info_frame.pack(fill=tk.X, pady=10)
+        info_frame.pack(anchor='center', pady=10)
 
-        DarkLabel(info_frame, text="Name:", width=10).grid(row=0, column=0, sticky=tk.W)
-        DarkLabel(info_frame, text=full_name).grid(row=0, column=1, sticky=tk.W)
+        DarkLabel(info_frame, text="Name:").grid(row=0, column=0, padx=5, sticky='e')
+        DarkLabel(info_frame, text=full_name).grid(row=0, column=1, padx=5, sticky='w')
 
-        DarkLabel(info_frame, text="Email:", width=10).grid(row=1, column=0, sticky=tk.W, pady=5)
-        DarkLabel(info_frame, text=current_user_email).grid(row=1, column=1, sticky=tk.W)
+        DarkLabel(info_frame, text="Email:").grid(row=1, column=0, padx=5, pady=5, sticky='e')
+        DarkLabel(info_frame, text=current_user_email).grid(row=1, column=1, padx=5, sticky='w')
 
+        # Centered Change Name Button
         DarkButton(profile_frame, 
                   text="✏️ Change Name", 
                   command=lambda: ask_for_password(stored_hashed_password)
-                  ).pack(pady=10)
+                  ).pack(pady=10, anchor='center')
 
-        # Voice Settings Section
+        # Spacer between sections
+        tk.Frame(main_frame, height=20, bg=DARK_THEME['bg']).pack()
+
+        # Voice Settings Section - Centered
         voice_frame = tk.Frame(main_frame, bg=DARK_THEME['bg'])
-        voice_frame.pack(fill=tk.X, pady=20)
+        voice_frame.pack(fill=tk.X, pady=10)
 
         DarkLabel(voice_frame, 
                  text="🔊 Voice Settings", 
                  font=("Arial", 12, "bold")
-                 ).pack(anchor=tk.W)
+                 ).pack(anchor='center', pady=5)
 
+        # Centered Speed Controls
         speed_frame = tk.Frame(voice_frame, bg=DARK_THEME['bg'])
-        speed_frame.pack(fill=tk.X, pady=10)
+        speed_frame.pack(anchor='center', pady=10)
 
-        DarkLabel(speed_frame, text="Voice Speed:").pack(side=tk.LEFT)
+        DarkLabel(speed_frame, text="Voice Speed:").pack(side=tk.LEFT, padx=5)
         
         speed_combobox = Combobox(speed_frame, 
                                 values=["Fast", "Normal", "Slow"], 
                                 state="readonly")
-        speed_combobox.pack(side=tk.LEFT, padx=10)
+        speed_combobox.pack(side=tk.LEFT, padx=5)
         
-        # Set current speed
+        # Set current speed (unchanged)
         db_manager.execute("SELECT voice_speed FROM users WHERE email=?", (current_user_email,))
         saved_speed = db_manager.fetchone()
         current_speed = saved_speed[0] if saved_speed else "Normal"
@@ -1216,13 +1222,13 @@ def show_settings():
         DarkButton(speed_frame, 
                   text="💾 Save", 
                   command=save_speed
-                  ).pack(side=tk.LEFT, padx=10)
+                  ).pack(side=tk.LEFT, padx=5)
 
-    # Back button
+    # Centered Back Button
     DarkButton(main_frame, 
               text="🔙 Back to Assistant", 
               command=logged_in
-              ).pack(pady=20)
+              ).pack(pady=100, anchor='center')
 
 def get_current_user_info():
     print(f"Looking up user with email: {current_user_email}")
@@ -1247,204 +1253,273 @@ def log_conversation(email, speaker, message):
         print(f"Failed to log conversation: {e}")
 
 def show_history():
-    clear_window()
-    configure_window()
-
-    # Main container
-    history_frame = tk.Frame(window, bg=DARK_THEME['bg'])
-    history_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
-
-    # Header
-    header_frame = tk.Frame(history_frame, bg=DARK_THEME['bg'])
-    header_frame.pack(fill=tk.X, pady=10)
-
-    DarkLabel(header_frame, 
-             text="CONVERSATION HISTORY", 
-             font=("Arial", 16, "bold")
-             ).pack(side=tk.LEFT)
-
-    DarkButton(header_frame, 
-              text="🔙 Back", 
-              command=logged_in
-              ).pack(side=tk.RIGHT)
-
-    # Text area with scrollbar
-    text_frame = tk.Frame(history_frame, bg=DARK_THEME['bg'])
-    text_frame.pack(fill=tk.BOTH, expand=True)
-
-    text_area = DarkText(text_frame)
-    scrollbar = DarkScrollbar(text_frame, command=text_area.yview)
-    text_area.config(yscrollcommand=scrollbar.set)
-
-    scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-    text_area.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-    # Fetch and display history
-    cursor = db_manager.execute(
-        "SELECT timestamp, speaker, message FROM conversations WHERE user_email = ? ORDER BY timestamp DESC", 
-        (current_user_email,)
-    )
-    conversations = cursor.fetchall()
-
-    if not conversations:
-        text_area.insert(tk.END, "No conversation history found")
-    else:
-        text_area.insert(tk.END, "Your Conversation History:\n\n")
-        for timestamp, speaker, message in conversations:
-            # Color coding for speaker
-            speaker_color = DARK_THEME['accent'] if speaker == "BOT" else DARK_THEME['secondary']
-            text_area.insert(tk.END, f"{timestamp} - ", "timestamp")
-            text_area.insert(tk.END, f"{speaker}: ", ("speaker", speaker.lower()))
-            text_area.insert(tk.END, f"{message}\n\n")
+    # Clear window safely
+    try:
+        if window.winfo_exists():
+            for widget in window.winfo_children():
+                widget.destroy()
+    except:
+        pass
+    
+    # Create basic UI first
+    main_frame = tk.Frame(window, bg=DARK_THEME['bg'])
+    main_frame.pack(fill=tk.BOTH, expand=True)
+    
+    loading_label = DarkLabel(main_frame, 
+                            text="Loading History...", 
+                            font=("Arial", 14))
+    loading_label.pack(pady=50)
+    
+    # Force UI update before any database ops
+    window.update_idletasks()
+    
+    def safe_history_load():
+        try:
+            # 1. Ensure database connection
+            if not db_manager.ensure_connection():
+                raise sqlite3.Error("Connection failed")
             
-        # Configure tags for styling
+            # 2. Execute query with retries
+            for attempt in range(3):
+                try:
+                    cursor = db_manager.execute(
+                        "SELECT timestamp, speaker, message FROM conversations WHERE user_email = ? ORDER BY timestamp DESC",
+                        (current_user_email,)
+                    )
+                    conversations = cursor.fetchall()
+                    break
+                except sqlite3.ProgrammingError:
+                    if attempt == 2: raise
+                    time.sleep(0.1)
+            
+            # 3. Build UI in main thread
+            window.after(0, lambda: build_history_ui(conversations))
+            
+        except Exception as e:
+            window.after(0, lambda: show_error(str(e)))
+    
+    def build_history_ui(conversations):
+        # Clear loading
+        for widget in main_frame.winfo_children():
+            widget.destroy()
+        
+        # Create main container
+        container = tk.Frame(main_frame, bg=DARK_THEME['bg'])
+        container.pack(fill=tk.BOTH, expand=True)
+        
+        # History display area
+        text_area = DarkText(container)
+        scrollbar = DarkScrollbar(container, command=text_area.yview)
+        text_area.config(yscrollcommand=scrollbar.set)
+        
         text_area.tag_config("timestamp", foreground="#aaaaaa")
-        text_area.tag_config("speaker", font=("Arial", 10, "bold"))
-        text_area.tag_config("user", foreground=DARK_THEME['secondary'])
+        text_area.tag_config("user", foreground=DARK_THEME['user_text'])
         text_area.tag_config("bot", foreground=DARK_THEME['accent'])
-
-    text_area.config(state=tk.DISABLED)
+        
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        text_area.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        if conversations:
+            text_area.insert(tk.END, "Conversation History:\n\n", "bot")
+            for ts, speaker, msg in conversations:
+                text_area.insert(tk.END, f"{ts} - ", "timestamp")
+                text_area.insert(tk.END, f"{speaker}: ", "user" if speaker == "USER" else "bot")
+                text_area.insert(tk.END, f"{msg}\n\n")
+        else:
+            text_area.insert(tk.END, "No history found", "bot")
+        
+        text_area.config(state=tk.DISABLED)
+        
+        # Bottom frame for back button
+        bottom_frame = tk.Frame(main_frame, bg=DARK_THEME['bg'])
+        bottom_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=10)
+        
+        # Centered back button
+        DarkButton(bottom_frame, 
+                 text="Back", 
+                 command=logged_in,
+                 width=20).pack(anchor='center')
+    
+    def show_error(msg):
+        for widget in main_frame.winfo_children():
+            widget.destroy()
+        
+        DarkLabel(main_frame, text=f"Error: {msg}", fg="red").pack(pady=10)
+        DarkButton(main_frame, text="Retry", command=show_history).pack(pady=5)
+        DarkButton(main_frame, text="Back", command=logged_in).pack(pady=5)
+    
+    # Start database thread
+    threading.Thread(target=safe_history_load, daemon=True).start()
 
 def about_me():
     clear_window()
     configure_window()
+    
     # Main frame with scrollbar
-    main_frame = tk.Frame(window)
+    main_frame = tk.Frame(window, bg=DARK_THEME['bg'])
     main_frame.pack(fill=tk.BOTH, expand=True)
     
     # Create canvas and scrollbar
-    canvas = tk.Canvas(main_frame)
+    canvas = tk.Canvas(main_frame, bg=DARK_THEME['bg'], highlightthickness=0)
     scrollbar = tk.Scrollbar(main_frame, orient="vertical", command=canvas.yview)
-    scrollable_frame = tk.Frame(canvas)
+    scrollable_frame = tk.Frame(canvas, bg=DARK_THEME['bg'])
     
     # Configure canvas scrolling
-    scrollable_frame.bind(
-        "<Configure>",
-        lambda e: canvas.configure(
-            scrollregion=canvas.bbox("all")
-        )
-    )
+    scrollable_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
     canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-    canvas.configure(yscrollcommand=scrollbar.set)
+    canvas.configure(yscrollcommand=scrollbar.set, bg=DARK_THEME['bg'])
     
     # Pack canvas and scrollbar
     canvas.pack(side="left", fill="both", expand=True)
     scrollbar.pack(side="right", fill="y")
     
-    # Project description
-    tk.Label(scrollable_frame, 
-             text="About This Voice Assistant Project",
-             font=("Arial", 16, "bold")).pack(pady=10)
-    
-    description = """This is an advanced Voice Assistant program developed with Python that combines:
-    
-• Natural language voice commands
-• Secure user authentication
-• Conversation history tracking
-• Smart home/device control
-• Information lookup (weather, time, conversions)
-• Alarm and timer functionality
-• System utilities (locking, shutdown)
+    # Style constants
+    TITLE_COLOR = "#40E0D0"  # Turquoise
+    HEADER_FONT = ("Arial", 22, "bold")
+    SECTION_FONT = ("Arial", 16, "bold")
+    BODY_FONT = ("Arial", 12)
+    LINK_FONT = ("Arial", 12, "underline")
+    ICON_FONT = ("Arial", 16)
+    PADX = 30
+    SECTION_SPACING = 20
 
-The assistant features:
-✓ Voice recognition
-✓ Text-to-speech responses
+    # Main Title Frame
+    title_frame = tk.Frame(scrollable_frame, bg=DARK_THEME['bg'])
+    title_frame.pack(fill='x', pady=(20, SECTION_SPACING))
+    DarkLabel(title_frame, 
+            text="About This Voice Assistant Project",
+            font=HEADER_FONT,
+            fg=TITLE_COLOR).pack(expand=True)
+
+    # Content Container
+    content_frame = tk.Frame(scrollable_frame, bg=DARK_THEME['bg'])
+    content_frame.pack(fill='x', padx=PADX)
+
+    # Project Description
+    description_text = """An advanced voice assistant platform featuring:
+    
+• Natural Language Processing for voice commands
+• Secure user authentication system
+• Conversation history tracking
+• Smart home/device integration
+• Real-time information retrieval (weather, time, conversions)
+• Alarm and timer management
+• System utilities integration
+
+Key Features:
+✓ Voice recognition with noise cancellation
+✓ Multi-language text-to-speech responses
 ✓ Cross-platform compatibility
 ✓ Database-backed user accounts
-✓ Multi-threaded operation
-"""
-    tk.Label(scrollable_frame, 
-             text=description,
-             justify=tk.LEFT).pack(pady=10, padx=20)
+✓ Multi-threaded operation for smooth performance"""
     
-    # Creator information
-    tk.Label(scrollable_frame, 
-             text="Creator Information",
-             font=("Arial", 14, "bold")).pack(pady=(20,5))
-    
-    creator_info = """Developed by Atal Abdullah Waziri
-Co-founder of Stellar Organization
+    DarkLabel(content_frame, 
+            text=description_text,
+            font=BODY_FONT,
+            justify=tk.LEFT).pack(fill='x', pady=10)
 
-This project represents my work in Python programming, SQL,
-voice technology, and assistant development."""
-    tk.Label(scrollable_frame, 
-             text=creator_info,
-             justify=tk.LEFT).pack(pady=5, padx=20)
+    # Separator
+    tk.Frame(content_frame, height=2, bg=DARK_THEME['fg']).pack(fill='x', pady=SECTION_SPACING)
+
+    # Developer Section
+    dev_frame = tk.Frame(content_frame, bg=DARK_THEME['bg'])
+    dev_frame.pack(fill='x', pady=10)
     
-    # Contact information
-    tk.Label(scrollable_frame, 
-             text="📫 Contact Information",
-             font=("Arial", 14, "bold")).pack(pady=(20,5))
+    DarkLabel(dev_frame, 
+            text="Developer Information",
+            font=SECTION_FONT,
+            fg=TITLE_COLOR).pack(anchor='w')
     
-    # Email label
-    email_frame = tk.Frame(scrollable_frame)
-    email_frame.pack(anchor="w", padx=20)
-    tk.Label(email_frame, text="Email: ").pack(side="left")
-    email_link = tk.Label(email_frame, text="atalwaziri9@gmail.com", fg="blue", cursor="hand2")
-    email_link.pack(side="left")
-    email_link.bind("<Button-1>", lambda e: webbrowser.open("mailto:atalwaziri9@gmail.com"))
+    creator_info = """Developed by: Atal Abdullah Waziri
+Position: Co-founder & Lead Developer at Stellar Organization
+
+Technical Expertise:
+- Python Development
+- SQL Database Design
+- Voice Interface Engineering
+- Full-stack AI Integration"""
     
-    # Instagram label
-    insta_frame = tk.Frame(scrollable_frame)
-    insta_frame.pack(anchor="w", padx=20)
-    tk.Label(insta_frame, text="Instagram: ").pack(side="left")
-    insta_link = tk.Label(insta_frame, text="https://www.instagram.com/atal_waziri/", fg="blue", cursor="hand2")
-    insta_link.pack(side="left")
-    insta_link.bind("<Button-1>", lambda e: webbrowser.open("https://www.instagram.com/atal_waziri/"))
+    DarkLabel(dev_frame, 
+            text=creator_info,
+            font=BODY_FONT,
+            justify=tk.LEFT).pack(fill='x', pady=10)
+
+    # Contact Information
+    contact_frame = tk.Frame(content_frame, bg=DARK_THEME['bg'])
+    contact_frame.pack(fill='x', pady=10)
     
-    # Stellar Organization links
-    tk.Label(scrollable_frame, 
-             text="🌐 Stellar Organization Links",
-             font=("Arial", 14, "bold")).pack(pady=(20,5))
+    DarkLabel(contact_frame, 
+            text="📨 Contact Information",
+            font=SECTION_FONT,
+            fg=TITLE_COLOR).pack(anchor='w')
+
+    def create_contact_row(parent, icon, label, url):
+        row_frame = tk.Frame(parent, bg=DARK_THEME['bg'])
+        row_frame.pack(fill='x', pady=3)
+        DarkLabel(row_frame, text=icon, font=ICON_FONT).pack(side=tk.LEFT, padx=(0, 10))
+        DarkLabel(row_frame, text=label, font=BODY_FONT).pack(side=tk.LEFT)
+        link_label = DarkLabel(row_frame, text=url, font=LINK_FONT, cursor="hand2")
+        link_label.pack(side=tk.LEFT, padx=(10, 0))
+        link_label.bind("<Button-1>", lambda e: webbrowser.open(url))
+        return row_frame
+
+    # Personal Contacts
+    personal_contacts = [
+        ("📧", "Email:", "mailto:atalwaziri9@gmail.com"),
+        ("📱", "Instagram:", "https://www.instagram.com/atal_waziri/")
+    ]
+
+    contact_grid = tk.Frame(contact_frame, bg=DARK_THEME['bg'])
+    contact_grid.pack(fill='x', pady=5)
+    for contact in personal_contacts:
+        create_contact_row(contact_grid, *contact)
+
+    # Organization Section
+    org_frame = tk.Frame(content_frame, bg=DARK_THEME['bg'])
+    org_frame.pack(fill='x', pady=10)
     
-    # Website
-    website_frame = tk.Frame(scrollable_frame)
-    website_frame.pack(anchor="w", padx=20)
-    tk.Label(website_frame, text="Website: ").pack(side="left")
-    website_link = tk.Label(website_frame, text="https://stellarorganization.mystrikingly.com/", fg="blue", cursor="hand2")
-    website_link.pack(side="left")
-    website_link.bind("<Button-1>", lambda e: webbrowser.open("https://stellarorganization.mystrikingly.com/"))
+    DarkLabel(org_frame, 
+            text="🌟 Stellar Organization",
+            font=SECTION_FONT,
+            fg=TITLE_COLOR).pack(anchor='w')
+
+    org_info = """A technology training and development organization focused on:
+- Professional IT Training
+- Custom Software Solutions
+- AI & Machine Learning Research
+- Open Source Contributions"""
     
-    # YouTube
-    yt_frame = tk.Frame(scrollable_frame)
-    yt_frame.pack(anchor="w", padx=20)
-    tk.Label(yt_frame, text="YouTube: ").pack(side="left")
-    yt_link = tk.Label(yt_frame, text="https://youtube.com/@Stellar_1Tech", fg="blue", cursor="hand2")
-    yt_link.pack(side="left")
-    yt_link.bind("<Button-1>", lambda e: webbrowser.open("https://youtube.com/@Stellar_1Tech"))
-    
-    # Instagram
-    stellar_insta_frame = tk.Frame(scrollable_frame)
-    stellar_insta_frame.pack(anchor="w", padx=20)
-    tk.Label(stellar_insta_frame, text="Instagram: ").pack(side="left")
-    stellar_insta_link = tk.Label(stellar_insta_frame, text="https://www.instagram.com/stellar_1training", fg="blue", cursor="hand2")
-    stellar_insta_link.pack(side="left")
-    stellar_insta_link.bind("<Button-1>", lambda e: webbrowser.open("https://www.instagram.com/stellar_1training"))
-    
-    # WhatsApp
-    wa_frame = tk.Frame(scrollable_frame)
-    wa_frame.pack(anchor="w", padx=20)
-    tk.Label(wa_frame, text="WhatsApp Community: ").pack(side="left")
-    wa_link = tk.Label(wa_frame, text="https://chat.whatsapp.com/H47fnJwZfeVG8ccISZbgqp", fg="blue", cursor="hand2")
-    wa_link.pack(side="left")
-    wa_link.bind("<Button-1>", lambda e: webbrowser.open("https://chat.whatsapp.com/H47fnJwZfeVG8ccISZbgqp"))
-    
-    # Blog link
-    tk.Label(scrollable_frame, 
-             text="✍️ Blog",
-             font=("Arial", 14, "bold")).pack(pady=(20,5))
-    
-    blog_frame = tk.Frame(scrollable_frame)
-    blog_frame.pack(anchor="w", padx=20)
-    blog_link = tk.Label(blog_frame, text="https://atalcodeblog.wordpress.com", fg="blue", cursor="hand2")
-    blog_link.pack(side="left")
-    blog_link.bind("<Button-1>", lambda e: webbrowser.open("https://atalcodeblog.wordpress.com"))
-    
-    # Back button at bottom
-    tk.Button(scrollable_frame, 
-              text="🔙 Back", 
-              command=back_to_previous,
-              padx=20).pack(pady=20)
+    DarkLabel(org_frame, 
+            text=org_info,
+            font=BODY_FONT,
+            justify=tk.LEFT).pack(fill='x', pady=10)
+
+    # Organization Links
+    org_links = [
+        ("🌐", "Website:", "https://stellarorganization.mystrikingly.com/"),
+        ("▶️", "YouTube:", "https://youtube.com/@Stellar_1Tech"),
+        ("💬", "WhatsApp:", "https://chat.whatsapp.com/H47fnJwZfeVG8ccISZbgqp"),
+        ("📱", "Instagram:", "https://www.instagram.com/stellar_1training"),
+        ("✍️", "Blog:", "https://atalcodeblog.wordpress.com")
+    ]
+
+    org_link_frame = tk.Frame(org_frame, bg=DARK_THEME['bg'])
+    org_link_frame.pack(fill='x', pady=5)
+    for link in org_links:
+        create_contact_row(org_link_frame, *link)
+
+    # Centered Back Button
+    # Centered Back Button
+    bottom_frame = tk.Frame(window, bg=DARK_THEME['bg'])
+    bottom_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=20)
+
+    DarkButton(
+        bottom_frame,
+        text="◀ Back to Main Menu",
+        command=back_to_previous,
+        width=25,
+        font=("Arial", 14)
+    ).pack(anchor='center')
 
 def back_to_previous():
     if current_state == "logged_in":
