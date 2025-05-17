@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch, MagicMock
 import sqlite3
 import tkinter as tk
-from Voice_Assistant import DatabaseManager, DarkButton, convert_units, get_current_user_info, ph
+from src.Voice_Assistant import DatabaseManager, DarkButton, convert_units, get_current_user_info, ph
 from argon2.exceptions import VerifyMismatchError
 
 # ======================================================================================
@@ -131,7 +131,7 @@ class TestUtilityFunctions(unittest.TestCase):
         
     def test_world_time(self):
         """Test world time lookup functionality"""
-        from Voice_Assistant import get_world_time
+        from src.Voice_Assistant import get_world_time
         times = get_world_time('London')
         self.assertIn('London', times)  # Verify location exists in results
         # Verify time format HH:MM AM/PM
@@ -147,7 +147,7 @@ class TestGUIComponents(unittest.TestCase):
         """Initialize GUI environment without displaying windows"""
         self.root = tk.Tk()
         self.root.withdraw()  # Prevent window from appearing during tests
-        from Voice_Assistant import DARK_THEME
+        from src.Voice_Assistant import DARK_THEME
         self.theme = DARK_THEME  # Load application theme
 
     def test_dark_button_creation(self):
@@ -200,11 +200,11 @@ class TestErrorHandling(unittest.TestCase):
         result = convert_units(1, 'invalid', 'units')
         self.assertEqual(result, "Unsupported unit conversion")
 
-    @patch('Voice_Assistant.requests.get')
+    @patch('src.Voice_Assistant.requests.get')
     def test_failed_weather_api(self, mock_get):
         """Test graceful handling of API failures"""
         mock_get.side_effect = Exception("API Error")
-        from Voice_Assistant import get_weather
+        from src.Voice_Assistant import get_weather
         result = get_weather("InvalidCity")
         self.assertIsNone(result)  # Verify None return on failure
 
