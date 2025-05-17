@@ -10,6 +10,7 @@ import tkinter as tk
 from src.Voice_Assistant import DatabaseManager, DarkButton, convert_units, get_current_user_info, ph
 from argon2.exceptions import VerifyMismatchError
 
+
 # ======================================================================================
 # Database Manager Tests
 # ======================================================================================
@@ -146,20 +147,18 @@ class TestGUIComponents(unittest.TestCase):
     def setUp(self):
         """Initialize GUI environment without displaying windows"""
         self.root = tk.Tk()
-        self.root.withdraw()  # Prevent window from appearing during tests
+        self.root.withdraw()  # Prevent window from appearing
         from src.Voice_Assistant import DARK_THEME
-        self.theme = DARK_THEME  # Load application theme
+        self.theme = DARK_THEME
 
     def test_dark_button_creation(self):
         """Verify proper creation of themed buttons"""
         button = DarkButton(self.root, text="Test")
-        # Verify text content and theme compliance
-        self.assertEqual(str(button['text']), "Test")  # Button text
-        self.assertEqual(button.cget('bg'), self.theme['button_bg'])  # Background color
-        self.assertEqual(button.cget('fg'), self.theme['fg'])  # Foreground color
+        self.assertEqual(button['text'], "Test")
+        self.assertEqual(button.cget('bg'), self.theme['button_bg'])
+        self.assertEqual(button.cget('fg'), self.theme['fg'])
 
     def tearDown(self):
-        """Clean up GUI resources after each test"""
         self.root.destroy()
 
 # ======================================================================================
