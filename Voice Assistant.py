@@ -1,47 +1,42 @@
-import tkinter as tk
+# === Built-in Imports ===
+from contextlib import contextmanager
+from datetime import datetime
 from tkinter import messagebox
 from tkinter.ttk import Combobox
-import sqlite3
+import ctypes
+from datetime import datetime
+import os
+import platform
 import re
+import sqlite3
+import subprocess
+import sys
+import threading
+import time
+import tkinter as tk
+import webbrowser
+
+# === Third-party Imports ===
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
-import pyttsx3
-import threading
-import subprocess
-from datetime import datetime
-import time
-import os
-import sys
-from contextlib import contextmanager
-import webbrowser
-import pytz
 import holidays
-import wikipedia
+import pyttsx3
+import pytz
 import requests
-import ctypes
-import platform
-import time
+import wikipedia
 
 
-class NullDevice:
-    def write(self, s):
-        pass
-    def flush(self):
-        pass
-    def __enter__(self):
-        return self
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        pass
-
-# 1. Set ALSA environment variables to suppress warnings
+# Set ALSA environment variables to suppress warnings (LINUX)
 os.environ['PYTHONWARNINGS'] = 'ignore'
 os.environ['ALSA_DEBUG'] = '0'
 os.environ['SDL_AUDIODRIVER'] = 'dummy'
 os.environ['PULSE_SERVER'] = 'tcp:localhost'
 os.environ['ALSA_CARD'] = '0'
 
-# 2. Create a more robust stderr suppressor
+# Create a more robust stderr suppressor
 @contextmanager
+
+# Function: suppress_stderr(), [ALSA errors]
 def suppress_stderr():
     """Completely suppress stderr output including ALSA"""
     with open(os.devnull, 'w') as devnull:
@@ -61,6 +56,22 @@ with suppress_stderr():
     import pyttsx3
     engine = pyttsx3.init()
 
+
+# === Classes ===
+
+# === Class Definition: NullDevice: ===
+class NullDevice:
+    def write(self, s):
+        pass
+    def flush(self):
+        pass
+    def __enter__(self):
+        return self
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        pass
+
+
+# === Class Definition: DatabaseManager: ===
 class DatabaseManager:
     def __init__(self, db_path):
         self.db_path = db_path
@@ -154,47 +165,8 @@ class DatabaseManager:
             self.connection.close()
             self.connection = None
 
-def initialize_database():
-    max_retries = 3
-    retry_count = 0
-    
-    while retry_count < max_retries:
-        try:
-            if not db_manager.ensure_connection():
-                raise sqlite3.Error("Could not establish database connection")
-                
-            # Create tables if they don't exist
-            db_manager.execute("""
-                CREATE TABLE IF NOT EXISTS users (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT,
-                    last_name TEXT,
-                    email TEXT UNIQUE,
-                    password TEXT,
-                    voice_speed TEXT DEFAULT 'Normal'
-                )
-            """)
-            
-            db_manager.execute("""
-                CREATE TABLE IF NOT EXISTS conversations (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_email TEXT,
-                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    speaker TEXT,
-                    message TEXT,
-                    FOREIGN KEY(user_email) REFERENCES users(email)
-                )
-            """)
-            db_manager.commit()
-            return True
-            
-        except sqlite3.Error as e:
-            retry_count += 1
-            print(f"Database initialization attempt {retry_count} failed: {e}")
-            if retry_count >= max_retries:
-                raise
-            time.sleep(1)  # Wait before retrying
 
+# === Class Definition: DarkButton ===
 class DarkButton(tk.Button):
     def __init__(self, master=None, **kwargs):
         super().__init__(master, **kwargs)
@@ -212,6 +184,8 @@ class DarkButton(tk.Button):
         self.bind("<Enter>", lambda e: self.config(bg=DARK_THEME['highlight']))
         self.bind("<Leave>", lambda e: self.config(bg=DARK_THEME['button_bg']))
 
+
+# === Class Definition: DarkEntry ===
 class DarkEntry(tk.Entry):
     def __init__(self, master=None, **kwargs):
         super().__init__(master, **kwargs)
@@ -226,6 +200,8 @@ class DarkEntry(tk.Entry):
             highlightbackground=DARK_THEME['bg']
         )
 
+
+# === Class Definition: DarkLabel ===
 class DarkLabel(tk.Label):
     def __init__(self, master=None, **kwargs):
         super().__init__(master, **kwargs)
@@ -236,6 +212,8 @@ class DarkLabel(tk.Label):
             pady=5
         )
 
+
+# === Class Definition: DarkText ===
 class DarkText(tk.Text):
     def __init__(self, master=None, **kwargs):
         super().__init__(master, **kwargs)
@@ -251,6 +229,8 @@ class DarkText(tk.Text):
             highlightthickness=0
         )
 
+
+# === Class Definition: DarkScrollbar ===
 class DarkScrollbar(tk.Scrollbar):
     def __init__(self, master=None, **kwargs):
         super().__init__(master, **kwargs)
@@ -261,24 +241,17 @@ class DarkScrollbar(tk.Scrollbar):
             relief=tk.FLAT
         )
 
-    
-# Global Variables
+# === Global Variables ===
 current_user = None
 window = None
 current_state = "main"
 current_user_email = None
-assistant_stop_event = threading.Event()  # Add this near your other global variables
-# Initialize Argon2 Password Hasher
+assistant_stop_event = threading.Event()
 ph = PasswordHasher()
-
 engine = pyttsx3.init()
 voices = engine.getProperty('voices')
 current_rate = engine.getProperty('rate')
-
-# Connect to the SQLite database
 db_manager = DatabaseManager('user.db')
-
-# Add this near the top of your code with other constants
 DARK_THEME = {
     'bg': '#121212',  # Dark background
     'fg': '#e0e0e0',  # Light text
@@ -296,6 +269,9 @@ DARK_THEME = {
     'bot_text': '#E0E0E0'    # Light gray for bot messages
 }
 
+# === GUI Functions ===
+
+    # Function: configure_window()
 def configure_window():
     """Configure window with dark theme"""
     global window
@@ -313,289 +289,24 @@ def configure_window():
     window.option_add('*foreground', DARK_THEME['fg'])
     window.option_add('*Font', 'Arial 10')
     
+    # Handle Linux scaling
+    if platform.system() == "Linux":
+        try:
+            window.tk.call("tk", "scaling", 2.0)
+        except tk.TclError:
+            pass
+    
     # Try to maximize (works on Windows/macOS)
     try:
         window.state('zoomed')
     except tk.TclError:
-        try:
-            # Linux fallback - try different methods
-            window.attributes('-zoomed', True)
-        except:
-            pass
+        pass
     
     # Ensure window decorations remain visible
     window.attributes('-fullscreen', False)
 
-def speak(text):
-    """Thread-safe text-to-speech"""
-    def _speak():
-        with suppress_stderr():
-            try:
-                engine.say(text)
-                engine.runAndWait()
-            except Exception as e:
-                print(f"Speech error: {e}")
-    
-    window.after(0, _speak)
 
-def get_working_microphone():
-    """Find a working microphone with complete error suppression"""
-    with suppress_stderr():
-        recognizer = sr.Recognizer()
-        try:
-            if hasattr(get_working_microphone, 'mic'):
-                get_working_microphone.mic = None
-                
-            mic = sr.Microphone()
-            with mic as source:
-                recognizer.adjust_for_ambient_noise(source, duration=0.5)
-            get_working_microphone.mic = mic
-            return mic
-        except:
-            pass
-        
-        for i in range(5):
-            try:
-                mic = sr.Microphone(device_index=i)
-                with mic as source:
-                    recognizer.adjust_for_ambient_noise(source, duration=0.5)
-                get_working_microphone.mic = mic
-                return mic
-            except:
-                continue
-    return None
-
-def listen_and_respond(conversation_area):
-    recognizer = sr.Recognizer()
-    microphone = get_working_microphone()
-    
-    if microphone is None:
-        messagebox.showerror("Microphone Error", "No working microphone found")
-        return None
-
-    stop_event = threading.Event()
-    processing_lock = threading.Lock()
-
-    def update_gui(text, speaker):
-        if conversation_area.winfo_exists():
-            tag = 'user' if speaker == "USER" else 'bot'
-            conversation_area.insert(tk.END, f"{speaker}: {text}\n", tag)
-            conversation_area.see(tk.END)
-            window.update()
-
-    def show_listening():
-        if conversation_area.winfo_exists():
-            conversation_area.insert(tk.END, "Listening...\n", 'system')
-            conversation_area.see(tk.END)
-            window.update()
-
-    def hide_listening():
-        if conversation_area.winfo_exists():
-            current_text = conversation_area.get("1.0", tk.END)
-            if current_text.endswith("Listening...\n"):
-                conversation_area.delete("end-2l", "end")
-            window.update()
-
-    def listen():
-        with suppress_stderr():
-            try:
-                window.after(0, show_listening)
-                with microphone as source:
-                    recognizer.adjust_for_ambient_noise(source, duration=0.5)
-                    audio = recognizer.listen(source, timeout=5, phrase_time_limit=10)
-                window.after(0, hide_listening)
-                return recognizer.recognize_google(audio)
-            except sr.WaitTimeoutError:
-                window.after(0, hide_listening)
-                return None
-            except Exception as e:
-                print(f"Recognition error: {e}")
-                window.after(0, hide_listening)
-                return None
-
-    def process_command(command):
-        if not command or not command.strip():
-            return None
-            
-        with processing_lock:
-            command = command.strip()
-            print(f"Processing command: {command}")
-            window.after(0, lambda: update_gui(command, "USER"))
-            log_conversation(current_user_email, "USER", command)
-            
-            response = ""
-            command_lower = command.lower()
-            
-            if any(greeting in command_lower for greeting in ["hello", "hi"]):
-                response = "Hello! How can I help you today?"
-            elif "current local time" in command_lower:
-                response = f"The current time is {datetime.now().strftime('%H:%M')}"
-            elif "date" in command_lower:
-                response = f"Today's date is {datetime.now().strftime('%B %d, %Y')}"
-            elif "hey assistant" in command_lower or "bot" in command_lower or "can you hear me" in command_lower or "hey" in command_lower:
-                response = f"I am in your service"
-            elif any(word in command_lower for word in ['holiday', 'holidays']):
-                response = show_holidays(command_lower, conversation_area)
-            elif any(word in command.lower() for word in ['time in', 'time at', 'world time', 'time zones', 'what time is it in']):
-                response = show_world_time(command, conversation_area)
-                return response
-            elif "open" in command_lower:
-                app = command_lower.replace("open", "").strip()
-                response = f"Opening {app}"
-                try:
-                    if "chrome" in app or "browser" in app or "web" in app or "google" in app or "google chrome" in app:
-                        subprocess.Popen(["google-chrome"])
-                    elif "terminal" in app or "command line" in app:
-                        subprocess.Popen(["gnome-terminal"])
-                    elif "file" in app or "explorer" in app or "folder" in app:
-                        subprocess.Popen(["nautilus"])
-                    elif "code" in app or "editor" in app or "vs code" in app:
-                        subprocess.Popen(["code"])
-                    elif "spotify" in app or "music" in app:
-                        subprocess.Popen(["spotify"])
-                    elif "calculator" in app:
-                        subprocess.Popen(["gnome-calculator"])
-                    elif "settings" in app or "preferences" in app:
-                        subprocess.Popen(["gnome-control-center"])
-                    elif "email" in app or "mail" in app or "thunderbird" in app:
-                        subprocess.Popen(["thunderbird"])
-                    elif "calendar" in app:
-                        subprocess.Popen(["gnome-calendar"])
-                    elif "discord" in app:
-                        subprocess.Popen(["discord"])
-                    elif "zoom" in app or "meeting" in app:
-                        subprocess.Popen(["zoom"])
-                    elif "slack" in app:
-                        subprocess.Popen(["slack"])
-                    elif "libreoffice" in app or "writer" in app or "word" in app:
-                        subprocess.Popen(["libreoffice", "--writer"])
-                    elif "spreadsheet" in app or "excel" in app:
-                        subprocess.Popen(["libreoffice", "--calc"])
-                    elif "presentation" in app or "powerpoint" in app:
-                        subprocess.Popen(["libreoffice", "--impress"])
-                    elif "photos" in app or "gallery" in app:
-                        subprocess.Popen(["shotwell"])
-                    elif "camera" in app:
-                        subprocess.Popen(["cheese"])
-                    elif "vscode" in app or "visual studio code" in app:
-                        subprocess.Popen(["code"])
-                    elif "telegram" in app:
-                        subprocess.Popen(["telegram-desktop"])
-                    elif "whatsapp" in app:
-                        subprocess.Popen(["whatsapp-desktop"])
-                    elif "steam" in app or "games" in app:
-                        subprocess.Popen(["steam"])
-                    elif "youtube" in app or "you tube" in app:
-                        webbrowser.open("https://www.youtube.com")
-                    elif "chatgpt" in app or "ai" in app:
-                        webbrowser.open("https://chat.openai.com")
-                    else:
-                        response = f"I'm not sure how to open {app}"
-                except FileNotFoundError:
-                    response = f"Sorry, it seems {app} is not installed."
-                except Exception as e:
-                    response = f"Sorry, I couldn't open {app}. Error: {str(e)}"
-            elif "search google" in command_lower or "search web" in command_lower or "search chrome" in command_lower or "search google chrome" in command_lower:
-                query = command_lower.replace("search google", "")\
-                        .replace("search web", "")\
-                        .replace("search chrome", "")\
-                        .replace("search google chrome", "")\
-                        .strip()
-                if query:
-                    response = f"Searching the web for {query}"
-                    try:
-                        subprocess.Popen(["google-chrome", f"https://www.google.com/search?q={query}"])
-                    except:
-                        response = "I couldn't perform the search. Please try again."
-            
-            elif any(phrase in command_lower for phrase in ["wikipedia", "what is", "who is", "tell me about"]):
-                query = re.sub(
-                    r'(search wikipedia for|wikipedia|what is|who is|tell me about)\s*', 
-                    '', 
-                    command_lower
-                ).strip()
-                
-                if query:
-                    response = search_wikipedia(query, conversation_area, display_only=True)
-                else:
-                    response = "What would you like me to search on Wikipedia?"
-                
-                return response
-
-            elif any(phrase in command_lower for phrase in [
-                "what is the meaning of",
-                "define",
-                "what does mean",
-                "explain the word"
-            ]):
-                response = explain_word(command, conversation_area)
-
-            # System control commands
-            elif "lock computer" in command_lower or "lock pc" in command_lower:
-                response = lock_computer()
-            elif "restart computer" in command_lower or "reboot computer" in command_lower:
-                if "confirm" in command_lower:
-                    response = restart_computer(confirm=False)
-                else:
-                    response = restart_computer()
-            elif "shutdown computer" in command_lower or "turn off computer" in command_lower:
-                if "confirm" in command_lower:
-                    response = shutdown_computer(confirm=False)
-                else:
-                    response = shutdown_computer()
-            
-            elif "weather" in command_lower or "forecast" in command_lower:
-                city = command_lower.replace("weather", "").replace("forecast", "").replace("in", "").strip()
-                if city:
-                    response = show_weather(city, conversation_area)
-                else:
-                    response = "Please specify a city (e.g., 'weather in London')"
-
-            elif "news" in command_lower or "headlines" in command_lower:
-                response = get_news_summaries(conversation_area)
-
-            elif any(word in command_lower for word in ["convert", "change", "to"]):
-                response = process_conversion_command(command, conversation_area)
-
-            elif "exit" in command_lower or "quit" in command_lower or "stop" in command_lower:
-                response = "Goodbye! Have a nice day."
-                window.after(0, lambda: update_gui(response, "BOT"))
-                speak(response)
-                return False
-            else:
-                response = "I'm not sure how to help with that. Could you try asking something else?"
-            
-            if response:
-                log_conversation(current_user_email, "BOT", response)
-            
-            return response
-
-    def assistant_loop():
-        last_command = None
-        while not stop_event.is_set():
-            command = listen()
-            if command is None or command == last_command:
-                continue
-                
-            response = process_command(command)
-            if response is False:
-                stop_event.set()
-                break
-            if response is None:
-                continue
-                
-            last_command = command
-            
-            if response:
-                window.after(0, lambda: update_gui(response, "BOT"))
-                speak(response)
-
-    assistant_thread = threading.Thread(target=assistant_loop)
-    assistant_thread.daemon = True
-    assistant_thread.start()
-    
-    return stop_event
-
+    # Function: setup_main_screen() (Main screen)
 def setup_main_screen():
     clear_window()
     global window, current_state
@@ -604,21 +315,21 @@ def setup_main_screen():
 
     window.title("Voice Assistant - Main Menu")
 
-    # Main container frame (unchanged)
+    # Main container frame
     main_frame = tk.Frame(window, bg=DARK_THEME['bg'])
     main_frame.pack(expand=True, fill=tk.BOTH, padx=50, pady=50)
 
-    # Title label (unchanged)
+    # Title label 
     DarkLabel(main_frame, 
              text="VOICE ASSISTANT", 
              font=("Arial", 30, "bold")
              ).pack(pady=(100, 40))
 
-    # Button frame with CENTERING (only this line changed)
+    # Button frame with CENTERING
     button_frame = tk.Frame(main_frame, bg=DARK_THEME['bg'])
     button_frame.pack(expand=True, pady=20)  # Added expand and pady
 
-    # Original button code with ONLY width increase
+    # Button code
     DarkButton(button_frame, 
               text="🚀 Continue Without Account", 
               command=continue_without_account,
@@ -643,7 +354,7 @@ def setup_main_screen():
               width=28  # Slightly increased
               ).pack(pady=10, fill=tk.X)
 
-    # Footer (unchanged)
+    # Footer 
     footer_frame = tk.Frame(main_frame, bg=DARK_THEME['bg'])
     footer_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=20)
 
@@ -652,15 +363,8 @@ def setup_main_screen():
              font=("Arial", 8)
              ).pack()
 
-def clear_window():
-    global assistant_stop_event
-    
-    if 'assistant_stop_event' in globals() and assistant_stop_event:
-        assistant_stop_event.set()
-    
-    for widget in window.winfo_children():
-        widget.destroy()
 
+    # Function: continue_without_account() (Guest mode)
 def continue_without_account():
     try:
         clear_window()
@@ -699,8 +403,7 @@ def continue_without_account():
         # Initialize speech engine safely
         try:
             wishMe()
-            window.after(1500, lambda: speak("Voice Assistant initialized in guest mode."))
-            conversation_area.insert(tk.END, "BOT: Voice Assistant initialized in guest mode.\n\n", 'bot')
+            window.after(1500, lambda: speak("Voice Assistant initialized"))
         except Exception as e:
             print(f"Speech initialization error: {e}")
             conversation_area.insert(tk.END, "Speech functions unavailable\n", 'system')
@@ -717,26 +420,33 @@ def continue_without_account():
         button_frame = tk.Frame(main_frame, bg=DARK_THEME['bg'])
         button_frame.pack(fill=tk.X, pady=10)
 
+        # Left-aligned Main Menu
         DarkButton(button_frame, 
-                  text="Main Menu",
-                  command=setup_main_screen
-                  ).pack(side=tk.LEFT, padx=5)
+                text="Main Menu",
+                command=setup_main_screen
+                ).pack(side=tk.LEFT, padx=5)
 
-        DarkButton(button_frame, 
-                  text="Sign Up", 
-                  command=sign_up
-                  ).pack(side=tk.LEFT, padx=5)
+        # Centered Sign Up/Sign In container
+        center_buttons = tk.Frame(button_frame, bg=DARK_THEME['bg'])
+        center_buttons.pack(side=tk.LEFT, expand=True)
 
-        DarkButton(button_frame, 
-                  text="Sign In", 
-                  command=sign_in
-                  ).pack(side=tk.LEFT, padx=5)
+        DarkButton(center_buttons, 
+                text="Sign Up", 
+                command=sign_up
+                ).pack(side=tk.LEFT, padx=20)
+
+        DarkButton(center_buttons, 
+                text="Sign In", 
+                command=sign_in
+                ).pack(side=tk.LEFT, padx=20)
 
     except Exception as e:
         print(f"Fatal error in guest mode: {e}")
         messagebox.showerror("Error", "Failed to initialize guest mode")
         setup_main_screen()
-        
+
+
+    # Function: sign_up() (Sign up form)
 def sign_up():
     def create_account_if_valid():
         # Get and clean input values
@@ -870,10 +580,8 @@ def sign_up():
         messagebox.showerror("Error", "Failed to initialize signup form")
         setup_main_screen()
 
-def get_user_from_database(email):
-    cursor = db_manager.execute("SELECT * FROM users WHERE email = ?", (email,))
-    return cursor.fetchone()
 
+    # Function: sign_in() (Sign in form)
 def sign_in():
     clear_window()
     configure_window()
@@ -923,7 +631,9 @@ def sign_in():
               text="Main Menu", 
               command=setup_main_screen
               ).pack(side=tk.LEFT, padx=10)
-    
+
+
+    # Function: login()
 def login(email, password):
     if not email or not password:
         messagebox.showerror("Error", "Please enter both email and password")
@@ -946,12 +656,14 @@ def login(email, password):
             speed = speed_setting[0]
             engine.setProperty('rate', 200 if speed == "Fast" else 100 if speed == "Slow" else 150)
        
-        print(f"\n=== LOGIN SUCCESSFUL ===")
+        print(f"\n=== LOGIN SUCCESSFUL ===")      # Debug prints
         print(f"User: {email}")
         logged_in()
     except VerifyMismatchError:
         messagebox.showerror("Error", "Invalid password")
 
+
+    # Function: logged_in() (Logged in user page)
 def logged_in():
     global current_state, assistant_stop_event
     
@@ -1000,7 +712,7 @@ def logged_in():
     conversation_area.config(yscrollcommand=scrollbar.set)
     
     # Welcome message
-    welcome_msg = f"Voice Assistant initialized.\nLogged in as {user_name}\n\n"
+    welcome_msg = f"Voice Assistant initialized.\n\n"
     conversation_area.insert(tk.END, welcome_msg, 'system')
     
     # Control buttons
@@ -1038,12 +750,13 @@ def logged_in():
     
     assistant_stop_event = listen_and_respond(conversation_area)
 
+
+    # Function: show_settings() (Settings for the logged in user)
 def show_settings():
     clear_window()
     configure_window()
 
     def ask_for_password(stored_hashed_password):
-        # Keep this function EXACTLY AS IS
         password_window = tk.Toplevel(window)
         password_window.title("Verify Password")
         password_window.configure(bg=DARK_THEME['bg'])
@@ -1085,7 +798,6 @@ def show_settings():
                 ).pack(side=tk.LEFT, padx=5)
         
     def change_name_window():
-        # Keep this function EXACTLY AS IS
         change_window = tk.Toplevel(window)
         change_window.title("Change Name")
         change_window.configure(bg=DARK_THEME['bg'])
@@ -1138,7 +850,7 @@ def show_settings():
                   command=change_window.destroy
                   ).pack(side=tk.LEFT, padx=5)
 
-    # Main settings window content - ONLY LAYOUT CHANGES BELOW
+    # Main settings window content 
     main_frame = tk.Frame(window, bg=DARK_THEME['bg'])
     main_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
 
@@ -1201,7 +913,7 @@ def show_settings():
                                 state="readonly")
         speed_combobox.pack(side=tk.LEFT, padx=5)
         
-        # Set current speed (unchanged)
+        # Set current speed 
         db_manager.execute("SELECT voice_speed FROM users WHERE email=?", (current_user_email,))
         saved_speed = db_manager.fetchone()
         current_speed = saved_speed[0] if saved_speed else "Normal"
@@ -1230,28 +942,8 @@ def show_settings():
               command=logged_in
               ).pack(pady=100, anchor='center')
 
-def get_current_user_info():
-    print(f"Looking up user with email: {current_user_email}")
-    result = db_manager.execute("SELECT name, last_name, password FROM users WHERE email = ?", (current_user_email,))
-    user_info = result.fetchone()
-    print(f"Found user info: {user_info}")
-    return user_info
 
-def update_user_info(new_name, new_last_name):
-    db_manager.execute("UPDATE users SET name = ?, last_name = ? WHERE email = ?", 
-                      (new_name, new_last_name, current_user_email))
-    db_manager.commit()
-
-def log_conversation(email, speaker, message):
-    try:
-        db_manager.execute(
-            "INSERT INTO conversations (user_email, speaker, message) VALUES (?, ?, ?)",
-            (email, speaker, message.strip())
-        )
-        db_manager.commit()  # Ensure this is here
-    except Exception as e:
-        print(f"Failed to log conversation: {e}")
-
+    # Function: show_history() (Conversation history for logged in users)
 def show_history():
     # Clear window safely
     try:
@@ -1351,6 +1043,8 @@ def show_history():
     # Start database thread
     threading.Thread(target=safe_history_load, daemon=True).start()
 
+
+    # Function: about_me() (About me page)
 def about_me():
     clear_window()
     configure_window()
@@ -1401,14 +1095,12 @@ def about_me():
 • Natural Language Processing for voice commands
 • Secure user authentication system
 • Conversation history tracking
-• Smart home/device integration
 • Real-time information retrieval (weather, time, conversions)
-• Alarm and timer management
 • System utilities integration
 
 Key Features:
-✓ Voice recognition with noise cancellation
-✓ Multi-language text-to-speech responses
+✓ Voice recognition
+✓ Text-to-speech responses
 ✓ Cross-platform compatibility
 ✓ Database-backed user accounts
 ✓ Multi-threaded operation for smooth performance"""
@@ -1433,11 +1125,12 @@ Key Features:
     creator_info = """Developed by: Atal Abdullah Waziri
 Position: Co-founder & Lead Developer at Stellar Organization
 
-Technical Expertise:
+Technical Aspects:
 - Python Development
 - SQL Database Design
 - Voice Interface Engineering
-- Full-stack AI Integration"""
+- GUI Design
+"""
     
     DarkLabel(dev_frame, 
             text=creator_info,
@@ -1484,10 +1177,10 @@ Technical Expertise:
             fg=TITLE_COLOR).pack(anchor='w')
 
     org_info = """A technology training and development organization focused on:
-- Professional IT Training
-- Custom Software Solutions
-- AI & Machine Learning Research
-- Open Source Contributions"""
+- Teaching programming
+- Math and English language tutoring
+- Book recommendations
+- Exam tips"""
     
     DarkLabel(org_frame, 
             text=org_info,
@@ -1509,7 +1202,6 @@ Technical Expertise:
         create_contact_row(org_link_frame, *link)
 
     # Centered Back Button
-    # Centered Back Button
     bottom_frame = tk.Frame(window, bg=DARK_THEME['bg'])
     bottom_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=20)
 
@@ -1521,12 +1213,330 @@ Technical Expertise:
         font=("Arial", 14)
     ).pack(anchor='center')
 
+
+    # Function: back_to_previous() (Helper function)
 def back_to_previous():
     if current_state == "logged_in":
         logged_in()
     else:
         setup_main_screen()
 
+
+# === Database Functions ===
+
+    # Function: initialize_database()
+def initialize_database():
+    max_retries = 3
+    retry_count = 0
+    
+    while retry_count < max_retries:
+        try:
+            if not db_manager.ensure_connection():
+                raise sqlite3.Error("Could not establish database connection")
+                
+            # Create tables if they don't exist
+            db_manager.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT,
+                    last_name TEXT,
+                    email TEXT UNIQUE,
+                    password TEXT,
+                    voice_speed TEXT DEFAULT 'Normal'
+                )
+            """)
+            
+            db_manager.execute("""
+                CREATE TABLE IF NOT EXISTS conversations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_email TEXT,
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    speaker TEXT,
+                    message TEXT,
+                    FOREIGN KEY(user_email) REFERENCES users(email)
+                )
+            """)
+            db_manager.commit()
+            return True
+            
+        except sqlite3.Error as e:
+            retry_count += 1
+            print(f"Database initialization attempt {retry_count} failed: {e}")
+            if retry_count >= max_retries:
+                raise
+            time.sleep(1)
+
+
+    # Function: get_user_from_database()
+def get_user_from_database(email):
+    cursor = db_manager.execute("SELECT * FROM users WHERE email = ?", (email,))
+    return cursor.fetchone()
+
+
+    # Function: get_current_user_info()
+def get_current_user_info():
+    print(f"Looking up user with email: {current_user_email}")
+    result = db_manager.execute("SELECT name, last_name, password FROM users WHERE email = ?", (current_user_email,))
+    user_info = result.fetchone()
+    print(f"Found user info: {user_info}")
+    return user_info
+
+
+    # Function: update_user_info()
+def update_user_info(new_name, new_last_name):
+    db_manager.execute("UPDATE users SET name = ?, last_name = ? WHERE email = ?", 
+                      (new_name, new_last_name, current_user_email))
+    db_manager.commit()
+
+
+    # Function: log_conversation()
+def log_conversation(email, speaker, message):
+    try:
+        db_manager.execute(
+            "INSERT INTO conversations (user_email, speaker, message) VALUES (?, ?, ?)",
+            (email, speaker, message.strip())
+        )
+        db_manager.commit()  
+    except Exception as e:
+        print(f"Failed to log conversation: {e}")
+
+
+
+    # Function: speak()
+def speak(text):
+    """Thread-safe text-to-speech"""
+    def _speak():
+        with suppress_stderr():
+            try:
+                engine.say(text)
+                engine.runAndWait()
+            except Exception as e:
+                print(f"Speech error: {e}")
+    
+    window.after(0, _speak)
+
+
+    # Function: get_working_microphone()
+def get_working_microphone():
+    """Cross-platform microphone detection"""
+    with suppress_stderr():
+        recognizer = sr.Recognizer()
+        try:
+            mic_list = sr.Microphone.list_microphone_names()
+            
+            # Windows/Linux/macOS compatible device detection
+            preferred_keywords = [
+                'microphone',
+                'input',
+                'default',
+                'built-in',
+                'webcam',  # For built-in webcam mics
+                'speakers',  # Sometimes mics are listed with speakers
+                'audio',
+                'recording'
+            ]
+            
+            for index, name in enumerate(mic_list):
+                if any(kw in name.lower() for kw in preferred_keywords):
+                    with sr.Microphone(device_index=index) as source:
+                        recognizer.adjust_for_ambient_noise(source, duration=0.5)
+                        return sr.Microphone(device_index=index)
+            
+            # Fallback to default microphone
+            return sr.Microphone()
+            
+        except Exception as e:
+            print(f"Microphone detection error: {e}")
+            return sr.Microphone()
+
+
+    # Function: listen_and_respond()
+def listen_and_respond(conversation_area):
+    recognizer = sr.Recognizer()
+    microphone = get_working_microphone()
+    
+    if microphone is None:
+        messagebox.showerror("Microphone Error", "No working microphone found")
+        return None
+
+    stop_event = threading.Event()
+    processing_lock = threading.Lock()
+
+    def update_gui(text, speaker):
+        if conversation_area.winfo_exists():
+            tag = 'user' if speaker == "USER" else 'bot'
+            conversation_area.insert(tk.END, f"{speaker}: {text}\n", tag)
+            conversation_area.see(tk.END)
+            window.update()
+
+    def show_listening():
+        if conversation_area.winfo_exists():
+            conversation_area.insert(tk.END, "Listening...\n", 'system')
+            conversation_area.see(tk.END)
+            window.update()
+
+    def hide_listening():
+        if conversation_area.winfo_exists():
+            current_text = conversation_area.get("1.0", tk.END)
+            if current_text.endswith("Listening...\n"):
+                conversation_area.delete("end-2l", "end")
+            window.update()
+
+    def listen():
+        with suppress_stderr():
+            try:
+                window.after(0, show_listening)
+                with microphone as source:
+                    recognizer.adjust_for_ambient_noise(source, duration=0.5)
+                    audio = recognizer.listen(source, timeout=5, phrase_time_limit=10)
+                window.after(0, hide_listening)
+                return recognizer.recognize_google(audio)
+            except sr.WaitTimeoutError:
+                window.after(0, hide_listening)
+                return None
+            except Exception as e:
+                print(f"Recognition error: {e}")
+                window.after(0, hide_listening)
+                return None
+
+    def process_command(command):
+        if not command or not command.strip():
+            return None
+            
+        with processing_lock:
+            command = command.strip()
+            print(f"Processing command: {command}")
+            window.after(0, lambda: update_gui(command, "USER"))
+            log_conversation(current_user_email, "USER", command)
+            
+            response = ""
+            command_lower = command.lower()
+            
+            if any(greeting in command_lower for greeting in ["hello", "hi"]):
+                response = "Hello! How can I help you today?"
+            elif "current local time" in command_lower:
+                response = f"The current time is {datetime.now().strftime('%H:%M')}"
+            elif "date" in command_lower:
+                response = f"Today's date is {datetime.now().strftime('%B %d, %Y')}"
+            elif "hey assistant" in command_lower or "bot" in command_lower or "can you hear me" in command_lower or "hey" in command_lower:
+                response = f"I am in your service"
+            elif any(word in command_lower for word in ['holiday', 'holidays']):
+                response = show_holidays(command_lower, conversation_area)
+            elif any(word in command.lower() for word in ['time in', 'time at', 'world time', 'time zones', 'what time is it in']):
+                response = show_world_time(command, conversation_area)
+                return response
+            elif "open" in command_lower:
+                app = command_lower.replace("open", "").strip()
+                response = f"Opening {app}"
+                try:
+                    success = open_application(app)
+                    if not success:
+                        response = f"Couldn't find {app} on this system"
+                except Exception as e:
+                    response = f"Error opening {app}: {str(e)}"
+            elif "search google" in command_lower or "search web" in command_lower or "search chrome" in command_lower or "search google chrome" in command_lower:
+                query = command_lower.replace("search google", "")\
+                        .replace("search web", "")\
+                        .replace("search chrome", "")\
+                        .replace("search google chrome", "")\
+                        .strip()
+                if query:
+                    response = f"Searching the web for {query}"
+                    try:
+                        subprocess.Popen(["google-chrome", f"https://www.google.com/search?q={query}"])
+                    except:
+                        response = "I couldn't perform the search. Please try again."
+            
+            elif any(phrase in command_lower for phrase in ["wikipedia", "what is", "who is", "tell me about"]):
+                query = re.sub(
+                    r'(search wikipedia for|wikipedia|what is|who is|tell me about)\s*', 
+                    '', 
+                    command_lower
+                ).strip()
+                
+                if query:
+                    response = search_wikipedia(query, conversation_area, display_only=True)
+                else:
+                    response = "What would you like me to search on Wikipedia?"
+                
+                return response
+
+            elif any(phrase in command_lower for phrase in [
+                "what is the meaning of",
+                "define",
+                "what does mean",
+                "explain the word"
+            ]):
+                response = explain_word(command, conversation_area)
+
+            # System control commands
+            elif "lock computer" in command_lower or "lock pc" in command_lower:
+                response = lock_computer()
+            elif "restart computer" in command_lower or "reboot computer" in command_lower:
+                if "confirm" in command_lower:
+                    response = restart_computer(confirm=False)
+                else:
+                    response = restart_computer()
+            elif "shutdown computer" in command_lower or "turn off computer" in command_lower:
+                if "confirm" in command_lower:
+                    response = shutdown_computer(confirm=False)
+                else:
+                    response = shutdown_computer()
+            
+            elif "weather" in command_lower or "forecast" in command_lower:
+                city = command_lower.replace("weather", "").replace("forecast", "").replace("in", "").strip()
+                if city:
+                    response = show_weather(city, conversation_area)
+                else:
+                    response = "Please specify a city (e.g., 'weather in London')"
+
+            elif "news" in command_lower or "headlines" in command_lower:
+                response = get_news_summaries(conversation_area)
+
+            elif any(word in command_lower for word in ["convert", "change", "to"]):
+                response = process_conversion_command(command, conversation_area)
+
+            elif "exit" in command_lower or "quit" in command_lower or "stop" in command_lower:
+                response = "Goodbye! Have a nice day."
+                window.after(0, lambda: update_gui(response, "BOT"))
+                speak(response)
+                return False
+            else:
+                response = "I'm not sure how to help with that. Could you try asking something else?"
+            
+            if response:
+                log_conversation(current_user_email, "BOT", response)
+            
+            return response
+
+    def assistant_loop():
+        last_command = None
+        while not stop_event.is_set():
+            command = listen()
+            if command is None or command == last_command:
+                continue
+                
+            response = process_command(command)
+            if response is False:
+                stop_event.set()
+                break
+            if response is None:
+                continue
+                
+            last_command = command
+            
+            if response:
+                window.after(0, lambda: update_gui(response, "BOT"))
+                speak(response)
+
+    assistant_thread = threading.Thread(target=assistant_loop)
+    assistant_thread.daemon = True
+    assistant_thread.start()
+    
+    return stop_event
+
+
+    # Function: wishMe() (Greetings)
 def wishMe():
     hour = datetime.now().hour 
     if hour >= 0 and hour < 12:
@@ -1538,6 +1548,9 @@ def wishMe():
     else:
         speak("Good Evening Sir !")
 
+# === Capability Functions ===
+
+    # Function: convert_units()
 def convert_units(value, from_unit, to_unit):
     """Handle all supported unit conversions"""
     # Normalize units
@@ -1607,6 +1620,8 @@ def convert_units(value, from_unit, to_unit):
     else:
         return "Unsupported unit conversion"
 
+
+    # Function: process_conversion_command()
 def process_conversion_command(command, conversation_area=None):
     """Handle unit conversion voice commands"""
     try:
@@ -1652,7 +1667,9 @@ def process_conversion_command(command, conversation_area=None):
     
     except Exception as e:
         return f"Conversion failed: {str(e)}"
-    
+
+
+    # Function: get_news_summaries()
 def get_news_summaries(conversation_area=None):
     """Fetch top 5 global news headlines with summaries"""
     try:
@@ -1694,7 +1711,9 @@ def get_news_summaries(conversation_area=None):
     except Exception as e:
         print(f"News error: {e}")
         return "Failed to fetch news updates"
-    
+
+
+    # Function: get_weather()
 def get_weather(city_name):
     """Get current weather and forecast for a city"""
     try:
@@ -1728,6 +1747,8 @@ def get_weather(city_name):
         print(f"Weather API error: {e}")
         return None
 
+
+    # Function: show_weather()
 def show_weather(city_name, conversation_area=None):
     """Process weather command and display results"""
     try:
@@ -1764,72 +1785,8 @@ def show_weather(city_name, conversation_area=None):
     except Exception as e:
         return f"Error getting weather: {str(e)}"
 
-# ===== SYSTEM CONTROL FUNCTIONS =====
-def lock_computer():
-    try:
-        if platform.system() == "Windows":
-            ctypes.windll.user32.LockWorkStation()
-            return "Computer locked successfully"
-        elif platform.system() == "Linux":
-            # Try all common Linux locking methods with availability checks
-            methods = [
-                ("loginctl lock-session", ["loginctl"]),  # Systemd
-                ("xdg-screensaver lock", ["xdg-screensaver"]),  # XDG standard
-                ("gnome-screensaver-command -l", ["gnome-screensaver-command"]),  # GNOME
-                ("i3lock", ["i3lock"]),  # i3 window manager
-                ("dm-tool lock", ["dm-tool"]),  # LightDM (won't fail if not available)
-                ("qdbus org.freedesktop.ScreenSaver /ScreenSaver Lock", ["qdbus"])  # KDE
-            ]
-            
-            for cmd, deps in methods:
-                try:
-                    # Check if all dependencies exist
-                    if all(subprocess.call(["which", dep], stdout=subprocess.PIPE, stderr=subprocess.PIPE) == 0 for dep in deps):
-                        subprocess.run(cmd.split(), check=True)
-                        return "Computer locked successfully"
-                except:
-                    continue
-            
-            # Final fallback - try to detect desktop environment
-            desktop = os.environ.get("XDG_CURRENT_DESKTOP", "").lower()
-            if "gnome" in desktop or "ubuntu" in desktop:
-                os.system("dbus-send --type=method_call --dest=org.gnome.ScreenSaver /org/gnome/ScreenSaver org.gnome.ScreenSaver.Lock")
-            elif "kde" in desktop:
-                os.system("qdbus org.freedesktop.ScreenSaver /ScreenSaver Lock")
-            else:
-                os.system("i3lock")  # Try i3lock as last resort
-            
-            return "Computer locked successfully"
-            
-    except Exception as e:
-        return f"Failed to lock computer: {str(e)}"
 
-def restart_computer(confirm=True):
-    if confirm:
-        return "Please confirm you want to restart the computer"
-    try:
-        if platform.system() == "Windows":
-            os.system("shutdown /r /t 1")
-        elif platform.system() == "Linux":
-            os.system("systemctl reboot")
-        return "Restarting computer now..."
-    except Exception as e:
-        return f"Failed to restart: {str(e)}"
-
-def shutdown_computer(confirm=True):
-    if confirm:
-        return "Please confirm you want to shutdown the computer"
-    try:
-        if platform.system() == "Windows":
-            os.system("shutdown /s /t 1")
-        elif platform.system() == "Linux":
-            os.system("systemctl poweroff")
-        return "Shutting down computer now..."
-    except Exception as e:
-        return f"Failed to shutdown: {str(e)}"
-
-
-
+    # Function: simplify_word_meaning()
 def simplify_word_meaning(word):
     """Get simple dictionary definition using DictionaryAPI"""
     try:
@@ -1863,6 +1820,8 @@ def simplify_word_meaning(word):
     except Exception as e:
         return f"Sorry, I couldn't look up '{word}'. Try another word."
 
+
+    # Function: explain_word()
 def explain_word(command, conversation_area=None):
     """Handle word explanation requests"""
     # Extract the word to look up
@@ -1892,6 +1851,7 @@ def explain_word(command, conversation_area=None):
     return explanation
 
 
+    # Function: search_wikipedia()
 def search_wikipedia(query, conversation_area=None, display_only=False):
     """Search Wikipedia and return a summary"""
     try:
@@ -1912,6 +1872,8 @@ def search_wikipedia(query, conversation_area=None, display_only=False):
     except Exception as e:
         return f"Search error: {str(e)}"
 
+
+    # Function: get_holidays_by_month()
 def get_holidays_by_month(month=None, year=2025):
     """Get global holidays for a specific month"""
     countries = ['US', 'GB', 'CA', 'AU', 'IN', 'JP', 'DE', 'FR', 'IT', 'BR', 'ZA', 'MX']
@@ -1928,6 +1890,8 @@ def get_holidays_by_month(month=None, year=2025):
     
     return holiday_dict
 
+
+    # Function: show_holidays()
 def show_holidays(command, conversation_area=None):
     """Handle all holiday-related commands"""
     month_map = {
@@ -1965,6 +1929,7 @@ def show_holidays(command, conversation_area=None):
     return response
 
 
+    # Function: get_world_time()
 def get_world_time(location=None):
     """Get times for specific location or all major cities"""
     timezones = {
@@ -2025,6 +1990,9 @@ def get_world_time(location=None):
     
     return results
 
+
+
+    # Function: show_world_time()
 def show_world_time(command, conversation_area=None):
     """Handle all time-related commands"""
     try:
@@ -2061,6 +2029,179 @@ def show_world_time(command, conversation_area=None):
         print(f"Error in show_world_time: {e}")
         return "Sorry, I couldn't get the time information."
 
+# === Utility Functions ===
+
+    # Function: open_application()
+def open_application(app_name):
+    """Cross-platform application opener with fallbacks"""
+    try:
+        system_os = platform.system()
+        app_name = app_name.lower()
+        
+        # Map applications to OS-specific commands
+        app_commands = {
+            'terminal': {
+                'Windows': ['cmd.exe'],
+                'Linux': ['gnome-terminal', 'x-terminal-emulator', 'konsole', 'xfce4-terminal'],
+                'Darwin': ['open', '-a', 'Terminal']
+            },
+            'file manager': {
+                'Windows': ['explorer.exe'],
+                'Linux': ['nautilus', 'dolphin', 'thunar'],
+                'Darwin': ['open', '-a', 'Finder']
+            },
+            'browser': {
+                'Windows': ['start', 'chrome'],
+                'Linux': ['google-chrome', 'firefox'],
+                'Darwin': ['open', '-a', 'Google Chrome']
+            },
+            'calculator': {
+                'Windows': ['calc.exe'],
+                'Linux': ['gnome-calculator', 'kcalc'],
+                'Darwin': ['open', '-a', 'Calculator']
+            },
+            'text editor': {
+                'Windows': ['notepad.exe'],
+                'Linux': ['gedit', 'kate', 'mousepad'],
+                'Darwin': ['open', '-a', 'TextEdit']
+            },
+            'spotify': {
+                'Windows': ['spotify'],
+                'Linux': ['spotify'],
+                'Darwin': ['open', '-a', 'Spotify']
+            }
+        }
+
+        # Determine application type
+        app_type = None
+        if 'terminal' in app_name:
+            app_type = 'terminal'
+        elif any(x in app_name for x in ['file', 'explorer']):
+            app_type = 'file manager'
+        elif any(x in app_name for x in ['chrome', 'browser', 'firefox']):
+            app_type = 'browser'
+        elif 'calculator' in app_name:
+            app_type = 'calculator'
+        elif 'editor' in app_name:
+            app_type = 'text editor'
+        elif 'spotify' in app_name:
+            app_type = 'spotify'
+
+        if app_type and app_type in app_commands:
+            commands = app_commands[app_type].get(system_os, [])
+            for cmd in commands:
+                try:
+                    subprocess.Popen(cmd)
+                    return True
+                except FileNotFoundError:
+                    continue
+
+        # Fallback to generic open
+        if system_os == "Windows":
+            os.startfile(app_name)
+        elif system_os == "Darwin":
+            subprocess.run(["open", app_name])
+        else:
+            subprocess.run(["xdg-open", app_name])
+            
+        return True
+        
+    except Exception as e:
+        print(f"Error opening application: {e}")
+        return False
+
+
+    # Function: lock_computer()
+def lock_computer():
+    """Cross-platform computer locking"""
+    try:
+        system_os = platform.system()
+        if system_os == "Windows":
+            if hasattr(ctypes, 'windll'):
+                ctypes.windll.user32.LockWorkStation()
+                return "Computer locked successfully"
+            return "Locking not supported on this Windows configuration"
+            
+        elif system_os == "Linux":
+            try:
+                # Try generic Linux command first
+                subprocess.run(["xdg-screensaver", "lock"], check=True)
+                return "Computer locked successfully"
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                # Fallback to loginctl
+                subprocess.run(["loginctl", "lock-session"], check=True)
+                return "Computer locked successfully"
+            
+        elif system_os == "Darwin":
+            subprocess.run(["pmset", "displaysleepnow"], check=True)
+            return "Computer locked successfully"
+            
+        return "Locking not supported on this OS"
+        
+    except Exception as e:
+        return f"Failed to lock computer: {str(e)}"
+
+
+    # Function: shutdown_computer()
+def shutdown_computer(confirm=True):
+    """Cross-platform system shutdown"""
+    if confirm:
+        return "Please confirm you want to shutdown the computer"
+        
+    try:
+        system_os = platform.system()
+        if system_os == "Windows":
+            subprocess.run(["shutdown", "/s", "/t", "1"])
+        elif system_os == "Linux":
+            if subprocess.run(["which", "systemctl"], capture_output=True).returncode == 0:
+                subprocess.run(["systemctl", "poweroff"])
+            else:
+                subprocess.run(["shutdown", "-h", "now"])
+        elif system_os == "Darwin":
+            subprocess.run(["osascript", "-e", 'tell app "System Events" to shut down'])
+        return "Shutting down computer now..."
+        
+    except Exception as e:
+        return f"Failed to shutdown: {str(e)}"
+
+
+    # Function: restart_computer()
+def restart_computer(confirm=True):
+    """Cross-platform system restart"""
+    if confirm:
+        return "Please confirm you want to restart the computer"
+        
+    try:
+        system_os = platform.system()
+        if system_os == "Windows":
+            subprocess.run(["shutdown", "/r", "/t", "1"])
+        elif system_os == "Linux":
+            # Try different init systems
+            if subprocess.run(["which", "systemctl"], capture_output=True).returncode == 0:
+                subprocess.run(["systemctl", "reboot"])
+            else:
+                subprocess.run(["shutdown", "-r", "now"])
+        elif system_os == "Darwin":
+            subprocess.run(["osascript", "-e", 'tell app "System Events" to restart'])
+        return "Restarting computer now..."
+        
+    except Exception as e:
+        return f"Failed to restart: {str(e)}"
+
+# === Other Functions ===
+
+    # Function: clear_window()
+def clear_window():
+    global assistant_stop_event
+    
+    if 'assistant_stop_event' in globals() and assistant_stop_event:
+        assistant_stop_event.set()
+    
+    for widget in window.winfo_children():
+        widget.destroy()
+
+
+    # Function: log_out()
 def log_out():
     global current_user, current_user_email, assistant_stop_event
     
@@ -2072,6 +2213,8 @@ def log_out():
     clear_window()
     setup_main_screen()
 
+
+    # Function: create_password_toggle()
 def create_password_toggle(parent, entry_widget):
     """Create a show/hide password toggle button with text fallback"""
     def toggle_password():
@@ -2100,6 +2243,13 @@ def create_password_toggle(parent, entry_widget):
     )
     return toggle_btn
 
+# === Main Guard ===
+if platform.system() == "Linux":
+    try:
+        import distro
+    except ImportError:
+        pass
+
 if __name__ == "__main__":
     try:
         db_manager = DatabaseManager('user.db')
@@ -2111,6 +2261,15 @@ if __name__ == "__main__":
         
         # Create main window
         window = tk.Tk()
+
+        if platform.system() == "Linux":
+            try:
+                # Fix potential display issues
+                os.environ['DISPLAY'] = ':0'
+                os.environ['XAUTHORITY'] = '/home/$USER/.Xauthority'
+            except:
+                pass
+
         configure_window()
         def delayed_start():
             setup_main_screen()
