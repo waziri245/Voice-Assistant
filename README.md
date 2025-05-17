@@ -46,7 +46,7 @@ A cross-platform, voice-controlled desktop assistant built using Python. This as
 3. **Run the application**
 
    ```bash
-   python VA.py
+   python Voice_Assistant.py
    ```
 
 ---
