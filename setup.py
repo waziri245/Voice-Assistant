@@ -9,4 +9,4 @@ setup(
         # Or you can read requirements.txt:
         line.strip() for line in open('requirements.txt') if line.strip()
     ],
-)
+) 
