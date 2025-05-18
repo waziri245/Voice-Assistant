@@ -1427,13 +1427,7 @@ def listen_and_respond(conversation_area):
                 return response
             elif "open" in command_lower:
                 app = command_lower.replace("open", "").strip()
-                response = f"Opening {app}"
-                try:
-                    success = open_application(app)
-                    if not success:
-                        response = f"Couldn't find {app} on this system"
-                except Exception as e:
-                    response = f"Error opening {app}: {str(e)}"
+                response = open_application(app)  # Let the function handle all responses
             elif "search google" in command_lower or "search web" in command_lower or "search chrome" in command_lower or "search google chrome" in command_lower:
                 query = command_lower.replace("search google", "")\
                         .replace("search web", "")\
@@ -2033,13 +2027,23 @@ def show_world_time(command, conversation_area=None):
 
     # Function: open_application()
 def open_application(app_name):
-    """Cross-platform application opener with fallbacks"""
+    """Cross-platform application opener with intelligent matching"""
     try:
         system_os = platform.system()
-        app_name = app_name.lower()
+        app_name = app_name.lower().strip()
         
-        # Map applications to OS-specific commands
+        # Expanded app commands mapping with common variations
         app_commands = {
+            'chrome': {
+                'Windows': ['start', 'chrome'],
+                'Linux': ['google-chrome', 'google-chrome-stable', 'chromium-browser'],
+                'Darwin': ['open', '-a', 'Google Chrome']
+            },
+            'browser': {
+                'Windows': ['start', 'chrome'],
+                'Linux': ['google-chrome', 'firefox', 'chromium-browser'],
+                'Darwin': ['open', '-a', 'Google Chrome']
+            },
             'terminal': {
                 'Windows': ['cmd.exe'],
                 'Linux': ['gnome-terminal', 'x-terminal-emulator', 'konsole', 'xfce4-terminal'],
@@ -2049,11 +2053,6 @@ def open_application(app_name):
                 'Windows': ['explorer.exe'],
                 'Linux': ['nautilus', 'dolphin', 'thunar'],
                 'Darwin': ['open', '-a', 'Finder']
-            },
-            'browser': {
-                'Windows': ['start', 'chrome'],
-                'Linux': ['google-chrome', 'firefox'],
-                'Darwin': ['open', '-a', 'Google Chrome']
             },
             'calculator': {
                 'Windows': ['calc.exe'],
@@ -2069,46 +2068,68 @@ def open_application(app_name):
                 'Windows': ['spotify'],
                 'Linux': ['spotify'],
                 'Darwin': ['open', '-a', 'Spotify']
+            },
+            'youtube': {
+                'Windows': ['start', 'chrome', 'https://youtube.com'],
+                'Linux': ['google-chrome', 'https://youtube.com'],
+                'Darwin': ['open', '-a', 'Google Chrome', 'https://youtube.com']
+            },
+            'settings': {
+                'Windows': ['control'],
+                'Linux': ['gnome-control-center', 'systemsettings'],
+                'Darwin': ['open', '-a', 'System Preferences']
             }
         }
 
-        # Determine application type
-        app_type = None
-        if 'terminal' in app_name:
-            app_type = 'terminal'
-        elif any(x in app_name for x in ['file', 'explorer']):
-            app_type = 'file manager'
-        elif any(x in app_name for x in ['chrome', 'browser', 'firefox']):
-            app_type = 'browser'
-        elif 'calculator' in app_name:
-            app_type = 'calculator'
-        elif 'editor' in app_name:
-            app_type = 'text editor'
-        elif 'spotify' in app_name:
-            app_type = 'spotify'
+        # First check for direct matches in our command mapping
+        for app_key in app_commands:
+            if app_key in app_name:
+                commands = app_commands[app_key].get(system_os, [])
+                for cmd in commands:
+                    try:
+                        # On Linux, check if the command exists first
+                        if system_os == "Linux":
+                            which_cmd = cmd[0] if isinstance(cmd, list) else cmd.split()[0]
+                            if subprocess.run(['which', which_cmd], 
+                                           capture_output=True).returncode != 0:
+                                continue
+                        
+                        subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        return f"Opening {app_key}"
+                    except Exception as e:
+                        continue
 
-        if app_type and app_type in app_commands:
-            commands = app_commands[app_type].get(system_os, [])
-            for cmd in commands:
-                try:
-                    subprocess.Popen(cmd)
-                    return True
-                except FileNotFoundError:
-                    continue
+        # Special handling for browser names
+        browser_names = ['chrome', 'firefox', 'edge', 'safari', 'opera', 'brave', 'browser']
+        if any(browser in app_name for browser in browser_names):
+            try:
+                webbrowser.open('https://google.com')
+                return "Opening browser"
+            except:
+                return "Couldn't open any browser"
 
-        # Fallback to generic open
-        if system_os == "Windows":
-            os.startfile(app_name)
-        elif system_os == "Darwin":
-            subprocess.run(["open", app_name])
-        else:
-            subprocess.run(["xdg-open", app_name])
-            
-        return True
+        # For Linux, try using desktop files
+        if system_os == "Linux":
+            try:
+                # Try xdg-open for desktop files
+                subprocess.Popen(['xdg-open', app_name], 
+                                stdout=subprocess.DEVNULL, 
+                                stderr=subprocess.DEVNULL)
+                return f"Opening {app_name}"
+            except:
+                pass
+
+        # Final fallback - try webbrowser for URLs
+        if any(domain in app_name for domain in ['http', 'www', '.com', '.org', '.net']):
+            url = app_name if app_name.startswith('http') else f'https://{app_name}'
+            webbrowser.open(url)
+            return f"Opening {url}"
+
+        return f"Couldn't find {app_name}"
         
     except Exception as e:
         print(f"Error opening application: {e}")
-        return False
+        return f"Failed to open {app_name}"
 
 
     # Function: lock_computer()
